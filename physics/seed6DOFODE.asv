@@ -1,0 +1,79 @@
+function [odeouts,intermediateValss] = untitled9(t,x,seedParams)
+    %this is the main function for the seed dynamics, it does the
+    %calculation of the derivatives (acceleration and torques of the seed
+    %body) by using a strip theory approach
+    
+    %first parse the inputs
+    
+    %then the mass and added mass section. get the current COM position, and
+    %moment of inertia I (use getMassProperties)
+    
+    
+    %then the kinematics section. Transform the overall seed velocity in the
+    %inertial frame as well as it's rotation into the local velocities at
+    %each strip (use computeSeedLocalVel)
+    
+    %then for each strip
+
+        %compute the location of it's center of pressure (chordwise location)
+        %for the most basic simulation this can be at the center of the section
+        %(call a function here)
+        %(store this as optional output)
+        
+        %grab/compute the angle of attack (since we have the
+        %computeSeedLocalVel that returns the velocity in the body frame, this
+        %should be simple, just need to make sure that we use the correct
+        %normals/direction and formula)
+        %(call a function here)
+        %(store this as optional output)
+        
+        %grab/compute the lift and drag coefficients (all of the needed ones)
+        %given the angle of attack
+        %(call a function here)
+        %(store these)
+        
+        %then we can compute the lift and drag from the local velocity, angle
+        %of attack and aerodynamic coefficients. There may be multiple lifts
+        %and drags, each with different coefficients, including: regular lift,
+        %regular drag, and rotational lift caused by the angular velocity
+        %component about the spanwise axis
+        %(call a function here)
+        %(store these lift and drag coefficients)
+        
+        %then, for each force just calculated, compute it's torque about the current COM 
+        %(store these)
+        
+        %then, grab the coefficients for the EXTRA torque terms and compute the
+        %dded torques for each spanwise section about the current COM
+        %(call a function here)
+        %(store these)
+    
+    %the forces are in the body frame, so we need to multiply each force to
+    %get it into the inertial frame
+    %(store the inertial frame forcess too, these are good for plotting)
+
+    %Now for the sum of forces and torques (forces and torques are done seperately so it's
+    %simpler, no wrenches here)
+
+    %Sum the inertial frame forces (make sure to add gravity) and calculate
+    %the acceleration (mass plus added mass)
+
+    %The torques are in the body frame, but that's ok, since we will be
+    %calculating the angular velocity and angular acceleration in the body
+    %frame, here we use the formula for angular acceleration, making sure
+    %to incorporate Idot, since the inertia is changing over time if the
+    %COM moves
+
+    %now the quaternion kinematics step. since the angular velocity and
+    %angular acceleration is in the body frame, but we need our quaternion
+    %to reference the inertial frame, we need to do quaternion kinematics
+    %here to update the orientation quaternion (this should be a seperate
+    %function that is called here)
+
+    %now we have all the xdots!, set the outputs needed for the integration
+
+    %make sure to also set the optional ou
+
+
+
+end

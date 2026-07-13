@@ -32,10 +32,12 @@ function seedParamsFull = setupSeedShapeAndMass(seedParamsIn)
 %     .strips.z_body   - 1xM vector of strip spanwise centres in body frame (m).
 %     .strips.chord    - 1xM vector of local chord lengths at each strip (m).
 %     .strips.dz       - 1xM vector of strip spanwise widths (m).
-%     .strips.xcp_body - 1xM vector of strip centre-of-pressure x positions
-%                        in body frame (chordwise), set to the strip centroid x.
-%     .strips.zcp_body - 1xM vector of strip centre-of-pressure z positions
-%                        in body frame (spanwise), set to the strip centroid z.
+%     .strips.xgc_body - 1xM vector of strip GEOMETRIC-CENTRE x positions
+%                        in body frame (chordwise), = the strip centroid x.
+%                        This is a fixed aerodynamic reference (mid-chord), NOT
+%                        the centre of pressure.
+%     .strips.zgc_body - 1xM vector of strip GEOMETRIC-CENTRE z positions
+%                        in body frame (spanwise), = the strip centroid z.
 %     .massParams.tSamples - copy of tSamples (s).
 %     .massParams.com_t    - 3xN array, CoM position in body-DATUM coords at
 %                            each time sample (m).
@@ -87,8 +89,8 @@ wingMass = aealDensity * wingArea;   % kg
 strip_z_body  = zeros(1, numPlates);   % spanwise centre, body z (m)
 strip_chord   = zeros(1, numPlates);   % local chord length (m)
 strip_dz      = zeros(1, numPlates);   % strip spanwise width (m)
-strip_xcp     = zeros(1, numPlates);   % CoP chordwise position, body x (m)
-strip_zcp     = zeros(1, numPlates);   % CoP spanwise position,  body z (m)
+strip_xgc     = zeros(1, numPlates);   % geometric-centre chordwise position, body x (m)
+strip_zgc     = zeros(1, numPlates);   % geometric-centre spanwise position,  body z (m)
 
 % Per-plate geometric quantities needed for inertia (computed below)
 plate_area        = zeros(1, numPlates);   % plate area (m^2)
@@ -135,12 +137,14 @@ for i = 1 : numPlates
     strip_dz(i)     = z_hi - z_lo;          % spanwise width in body z (m)
     strip_chord(i)  = localChord;           % chordwise length in body x (m)
 
-    % Centre of pressure initialised to the plate centroid (both axes).
-    % The chordwise position (xcp) is refined each dynamics step via
-    % angleOfAttackAndCoeffs; the spanwise position (zcp) is fixed at the
-    % strip centroid because strip theory assumes uniform spanwise loading.
-    strip_xcp(i) = cy_draw;   % drawing y -> body x (chordwise CoP, m)
-    strip_zcp(i) = cx_draw;   % drawing x -> body z (spanwise  CoP, m)
+    % Strip GEOMETRIC CENTRE = the plate centroid (both axes). This is a FIXED
+    % body-frame aerodynamic reference (mid-chord/centroid), NOT the centre of
+    % pressure. The true CoP migrates with angle of attack and is computed each
+    % dynamics step in seed6DOFODE (computeAeroCoeffs + computeStripCoP); it is
+    % never stored here. The spanwise position is fixed at the strip centroid
+    % because strip theory assumes uniform spanwise loading.
+    strip_xgc(i) = cy_draw;   % drawing y -> body x (chordwise geometric centre, m)
+    strip_zgc(i) = cx_draw;   % drawing x -> body z (spanwise  geometric centre, m)
 
     % --- Store for inertia calculation below --------------------------------
     plate_area(i)        = pArea;
@@ -300,8 +304,8 @@ seedParamsFull = seedParamsIn;   % carry through all original inputs
 seedParamsFull.strips.z_body   = strip_z_body;   % 1xM, body-z centres (m)
 seedParamsFull.strips.chord    = strip_chord;    % 1xM, chord lengths (m)
 seedParamsFull.strips.dz       = strip_dz;       % 1xM, spanwise widths (m)
-seedParamsFull.strips.xcp_body = strip_xcp;      % 1xM, CoP chordwise body x (m)
-seedParamsFull.strips.zcp_body = strip_zcp;      % 1xM, CoP spanwise  body z (m)
+seedParamsFull.strips.xgc_body = strip_xgc;      % 1xM, geometric-centre chordwise body x (m)
+seedParamsFull.strips.zgc_body = strip_zgc;      % 1xM, geometric-centre spanwise  body z (m)
 
 % --- Time-varying mass properties (queried by getMassProperties) ---------
 seedParamsFull.massParams.tSamples   = tSamples;     % Nx1 (s)

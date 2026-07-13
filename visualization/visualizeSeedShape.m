@@ -2,8 +2,8 @@ function visualizeSeedShape(seedParams, rot, pos, opts)
 % VISUALIZESEEDSHAPE  Plot the seed geometry in 3D at a given pose.
 %
 % Renders the seed wing as a filled surface, with optional overlays for
-% strip plate boundaries, per-plate CoM markers, per-strip CoP markers,
-% the seed CoM, and the nut. Does NOT clear the figure or call hold off,
+% strip plate boundaries, per-plate CoM markers, per-strip geometric-centre
+% markers, the seed CoM, and the nut. Does NOT clear the figure or call hold off,
 % so it can be layered into any existing axes.
 %
 % INPUTS
@@ -17,14 +17,14 @@ function visualizeSeedShape(seedParams, rot, pos, opts)
 %     .showPlate      - draw the wing surface patch      (default: true)
 %     .showPlateEdges - draw strip boundary lines        (default: true)
 %     .showPlateCom   - draw per-plate centroid markers  (default: false)
-%     .showCop        - draw per-strip CoP markers       (default: false)
+%     .showGeoCenter  - draw per-strip geometric-centre markers (default: false)
 %     .showCom        - draw total seed CoM marker       (default: true)
 %     .showNut        - draw the nut position marker     (default: true)
 %     .colorPlate     - wing surface face color          (default: [0.18 0.55 0.18])
 %     .colorEdge      - strip boundary line color        (default: [0.10 0.35 0.10])
 %     .colorPlateCom  - per-plate CoM marker color       (default: [0.80 0.20 0.20])
 %     .colorCom       - total CoM marker color           (default: [0.85 0.10 0.10])
-%     .colorCop       - CoP marker color                 (default: [0.20 0.40 0.80])
+%     .colorGeoCenter - geometric-centre marker color    (default: [0.20 0.40 0.80])
 %     .colorNut       - nut marker color                 (default: [0.10 0.10 0.10])
 %     .plateAlpha     - wing surface transparency 0-1    (default: 0.7)
 %     .markerSize     - size of all point markers        (default: 10)
@@ -41,7 +41,7 @@ opts = setDefault(opts, 'tIndex',         1);
 opts = setDefault(opts, 'showPlate',      true);
 opts = setDefault(opts, 'showPlateEdges', true);
 opts = setDefault(opts, 'showPlateCom',   false);
-opts = setDefault(opts, 'showCop',        false);
+opts = setDefault(opts, 'showGeoCenter',  false);
 opts = setDefault(opts, 'showCom',        true);
 opts = setDefault(opts, 'showNut',        true);
 
@@ -50,7 +50,7 @@ opts = setDefault(opts, 'colorPlate',    [0.18 0.55 0.18]);   % mid green
 opts = setDefault(opts, 'colorEdge',     [0.10 0.35 0.10]);   % dark green
 opts = setDefault(opts, 'colorPlateCom', [0.80 0.20 0.20]);   % red
 opts = setDefault(opts, 'colorCom',      [0.85 0.10 0.10]);   % bright red
-opts = setDefault(opts, 'colorCop',      [0.20 0.40 0.80]);   % blue
+opts = setDefault(opts, 'colorGeoCenter',[0.20 0.40 0.80]);   % blue
 opts = setDefault(opts, 'colorNut',      [0.10 0.10 0.10]);   % black
 
 % Style
@@ -79,8 +79,8 @@ nutMass     = bsp.nutMass_t(tIdx);     % kg
 z_body  = strips.z_body;    % 1xM spanwise centres, body z (m)
 chord   = strips.chord;     % 1xM chord lengths,    body x (m)
 dz      = strips.dz;        % 1xM spanwise widths,  body z (m)
-xcp     = strips.xcp_body;  % 1xM CoP chordwise,    body x (m)
-zcp     = strips.zcp_body;  % 1xM CoP spanwise,     body z (m)
+xgc     = strips.xgc_body;  % 1xM geometric-centre chordwise, body x (m)
+zgc     = strips.zgc_body;  % 1xM geometric-centre spanwise,  body z (m)
 numStrips = numel(z_body);
 
 % -------------------------------------------------------------------------
@@ -174,15 +174,15 @@ if opts.showPlateCom
 end
 
 % -------------------------------------------------------------------------
-% 6. PER-STRIP CENTRE-OF-PRESSURE MARKERS
+% 6. PER-STRIP GEOMETRIC-CENTRE MARKERS
 % -------------------------------------------------------------------------
-if opts.showCop
+if opts.showGeoCenter
     for i = 1 : numStrips
-        cop_body  = [xcp(i); 0; zcp(i)];
-        p = toPlot(toWorld(cop_body));
+        geoCenter_body = [xgc(i); 0; zgc(i)];
+        p = toPlot(toWorld(geoCenter_body));
         plot3(p(1), p(2), p(3), ...
-              'd', 'Color', opts.colorCop, ...
-              'MarkerFaceColor', opts.colorCop, ...
+              'd', 'Color', opts.colorGeoCenter, ...
+              'MarkerFaceColor', opts.colorGeoCenter, ...
               'MarkerSize', opts.markerSize * 0.7);
         hold on;
     end

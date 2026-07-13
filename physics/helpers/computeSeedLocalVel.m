@@ -1,8 +1,9 @@
 function seedLocalVels = computeSeedLocalVel(seedParams, currComPos, seedRotQuat, comVel, comOmega)
-% COMPUTESEEDLOCALVEL  Local flow velocity at each strip centre of pressure.
+% COMPUTESEEDLOCALVEL  Local flow velocity at each strip geometric centre.
 %
-% Computes, for one timestep, the body-frame velocity of every strip CoP, the
-% relative wind it sees, and the in-plane (spanwise-projected) wind used by
+% Computes, for one timestep, the body-frame velocity of every strip geometric
+% centre (the fixed mid-chord/centroid reference, NOT the centre of pressure),
+% the relative wind it sees, and the in-plane (spanwise-projected) wind used by
 % the 2D strip aerodynamics.
 %
 % INPUTS
@@ -11,7 +12,7 @@ function seedLocalVels = computeSeedLocalVel(seedParams, currComPos, seedRotQuat
 %                 the current frame. The caller interpolates this from the
 %                 time-varying massParams.com_t in the main dynamics loop and
 %                 passes it in. It is the reference point for the omega x r
-%                 moment arms.
+%                 lever arms of the transport theorem.
 %   seedRotQuat : 4x1 unit quaternion [q0;q1;q2;q3], scalar-first (Hamilton),
 %                 representing the BODY->WORLD rotation (body axes expressed in
 %                 the inertial frame). This is the orientation integrated by ode45.
@@ -19,7 +20,7 @@ function seedLocalVels = computeSeedLocalVel(seedParams, currComPos, seedRotQuat
 %   comOmega    : 3x1 body angular velocity, expressed in BODY-frame axes (rad/s).
 %
 % OUTPUT (struct, all fields 3xM where M = number of strips, all body frame)
-%   seedLocalVels.totalVel      : velocity of each CoP (body frame, m/s).
+%   seedLocalVels.totalVel      : velocity of each geometric centre (body, m/s).
 %   seedLocalVels.windVel       : relative wind = -totalVel (body frame, m/s).
 %   seedLocalVels.projectedWind : windVel with the spanwise (body z) component
 %                                 removed; rows 1-2 (x=chordwise, y=normal) are
@@ -35,8 +36,8 @@ function seedLocalVels = computeSeedLocalVel(seedParams, currComPos, seedRotQuat
 % its inverse is its transpose, so the reverse mapping is
 %       v_body = R(q)' * v_inertial.
 %
-% Velocity of a material point P (a strip CoP) on a rigid body, relative to
-% the inertial frame, is the rigid-body transport relation:
+% Velocity of a material point P (a strip geometric centre) on a rigid body,
+% relative to the inertial frame, is the rigid-body transport relation:
 %       v_P = v_CoM + omega x r_{P/CoM}                                  (1)
 % This is a statement about physical vectors; it holds in any single frame as
 % long as every term is expressed in that frame.
@@ -51,8 +52,8 @@ function seedLocalVels = computeSeedLocalVel(seedParams, currComPos, seedRotQuat
 %
 % Note on currComPos: it is the CoM location in body-datum coords at this
 % frame, supplied by the caller (interpolated from massParams.com_t). It is
-% the reference point subtracted from each CoP to form the moment arm
-% r_{P/CoM}^body in eqn (2). It carries no inertial-position information --
+% the reference point subtracted from each strip geometric centre to form the
+% lever arm r_{P/CoM}^body in eqn (2). It carries no inertial-position info --
 % velocity is independent of absolute position -- so it is used only for the
 % relative geometry, not added anywhere as a translation.
 % =========================================================================
@@ -73,11 +74,11 @@ R_world2body = R_body2world';     % v_body     = R_world2body * v_inertial
 comVel_body = R_world2body * comVel(:);   % 3x1, body frame
 
 % -------------------------------------------------------------------------
-% 3. STRIP GEOMETRY: CoP positions relative to the CoM, in the body frame
+% 3. STRIP GEOMETRY: geometric-centre positions relative to the CoM, body frame
 % -------------------------------------------------------------------------
-xcp = seedParams.strips.xcp_body;   % 1xM chordwise CoP, body x (m)
-zcp = seedParams.strips.zcp_body;   % 1xM spanwise  CoP, body z (m)
-numStrips = numel(xcp);
+xgc = seedParams.strips.xgc_body;   % 1xM chordwise geometric centre, body x (m)
+zgc = seedParams.strips.zgc_body;   % 1xM spanwise  geometric centre, body z (m)
+numStrips = numel(xgc);
 
 % CoM location in BODY-DATUM coords, supplied by the caller for this frame.
 comPos_body = currComPos(:);   % 3x1, body-datum coords (m)
@@ -85,23 +86,23 @@ comPos_body = currComPos(:);   % 3x1, body-datum coords (m)
 % -------------------------------------------------------------------------
 % 4. PER-STRIP VELOCITIES
 % -------------------------------------------------------------------------
-totalVel      = zeros(3, numStrips);   % CoP velocity, body frame
+totalVel      = zeros(3, numStrips);   % geometric-centre velocity, body frame
 windVel       = zeros(3, numStrips);   % relative wind = -velocity
 projectedWind = zeros(3, numStrips);   % wind with spanwise (z) component removed
 
 for i = 1 : numStrips
 
-    % CoP position relative to the CoM, body frame (the moment arm in eqn (2)).
-    % Body y = 0 because the plate is flat (lies in the body x-z plane).
-    r_cp_body = [xcp(i); 0; zcp(i)] - comPos_body;
+    % Geometric-centre position relative to the CoM, body frame (the lever arm
+    % r_{P/CoM} in eqn (2)). Body y = 0 because the plate is flat (body x-z plane).
+    r_gc_body = [xgc(i); 0; zgc(i)] - comPos_body;
 
-    % Total velocity of the CoP in the body frame:
+    % Total velocity of the geometric centre in the body frame:
     %   v_P^body = comVel_body + omega^body x r_{P/CoM}^body   (eqn (2))
-    v_cp_body = comVel_body + cross(comOmega(:), r_cp_body);
-    totalVel(:, i) = v_cp_body;
+    v_gc_body = comVel_body + cross(comOmega(:), r_gc_body);
+    totalVel(:, i) = v_gc_body;
 
     % Relative wind seen by the strip in still fluid = -(strip velocity).
-    wind = -v_cp_body;
+    wind = -v_gc_body;
     windVel(:, i) = wind;
 
     % Projected wind for 2D strip theory: discard the spanwise (body z)
@@ -118,22 +119,6 @@ seedLocalVels.windVel       = windVel;         % 3xM, body frame (m/s)
 seedLocalVels.projectedWind = projectedWind;   % 3xM, body frame, z = 0 (m/s)
 
 end   % computeSeedLocalVel
-
-
-% % =========================================================================
-% % LOCAL HELPER: quaternion -> rotation matrix (body->world)
-% % =========================================================================
-% function R = quatToRotm(q)
-% % QUATTOROTM  Rotation matrix from a scalar-first unit quaternion (Hamilton).
-% %   q = [w; x; y; z]. Returns R such that v_inertial = R * v_body.
-% %   Written out explicitly (no toolbox dependency) to keep the convention
-% %   unambiguous.
-%     w = q(1); x = q(2); y = q(3); z = q(4);
-% 
-%     R = [ 1 - 2*(y^2 + z^2),     2*(x*y - w*z),       2*(x*z + w*y);
-%           2*(x*y + w*z),         1 - 2*(x^2 + z^2),   2*(y*z - w*x);
-%           2*(x*z - w*y),         2*(y*z + w*x),       1 - 2*(x^2 + y^2) ];
-% end
 
 
 

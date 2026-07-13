@@ -2,7 +2,7 @@ function visualizeSeedLocalVels(seedParams, seedLocalVels, rot, pos, opts)
 % VISUALIZESEEDLOCALVELS  Draw seed local velocity vectors at a given pose.
 %
 % Plots velocity vectors (from computeSeedLocalVel) as scaled lines with a dot
-% at the tip. Can draw the per-strip velocities at each centre of pressure, or
+% at the tip. Can draw the per-strip velocities at each geometric centre, or
 % a single averaged vector at the CoM. Uses the same Y-up plot convention as
 % visualizeSeedShape and does NOT clear the figure, so it layers on top of a
 % seed-shape plot.
@@ -15,7 +15,7 @@ function visualizeSeedLocalVels(seedParams, seedLocalVels, rot, pos, opts)
 %   pos           : 3x1 world-frame position of the body-datum origin (m).
 %   opts          : (optional) struct of toggles, colours, and scale. Defaults:
 %     .tIndex         - time index for the CoM lookup       (default: 1)
-%     .mode           - 'cop' (per strip) or 'com' (average) (default: 'cop')
+%     .mode           - 'geoCenter' (per strip) or 'com' (average) (default: 'geoCenter')
 %     .showTotal      - draw totalVel vectors               (default: true)
 %     .showWind       - draw windVel vectors                (default: false)
 %     .showProjected  - draw projectedWind vectors          (default: false)
@@ -34,7 +34,7 @@ if nargin < 5 || isempty(opts)
 end
 
 opts = setDefault(opts, 'tIndex',        1);
-opts = setDefault(opts, 'mode',          'cop');
+opts = setDefault(opts, 'mode',          'geoCenter');
 opts = setDefault(opts, 'showTotal',     true);
 opts = setDefault(opts, 'showWind',      false);
 opts = setDefault(opts, 'showProjected', false);
@@ -54,10 +54,10 @@ toPlot = @(w) [w(1,:); w(3,:); w(2,:)];
 % -------------------------------------------------------------------------
 % 2. ARROW BASE POSITIONS (body frame)
 % -------------------------------------------------------------------------
-xcp = seedParams.strips.xcp_body;   % 1xM chordwise CoP, body x (m)
-zcp = seedParams.strips.zcp_body;   % 1xM spanwise  CoP, body z (m)
-numStrips = numel(xcp);
-copBody = [xcp; zeros(1, numStrips); zcp];   % 3xM, body y = 0 (flat plate)
+xgc = seedParams.strips.xgc_body;   % 1xM chordwise geometric centre, body x (m)
+zgc = seedParams.strips.zgc_body;   % 1xM spanwise  geometric centre, body z (m)
+numStrips = numel(xgc);
+geoCenterBody = [xgc; zeros(1, numStrips); zgc];   % 3xM, body y = 0 (flat plate)
 
 % CoM in body-datum coords (used as the base point in 'com' mode)
 comBody = seedParams.massParams.com_t(:, opts.tIndex);   % 3x1
@@ -88,9 +88,9 @@ for s = 1 : size(sets, 1)
         velAvg = mean(velAll, 2);   % 3x1
         drawArrow(comBody, velAvg, rot, pos, toPlot, opts, col);
     else
-        % One vector per strip at its CoP
+        % One vector per strip at its geometric centre
         for i = 1 : numStrips
-            drawArrow(copBody(:, i), velAll(:, i), rot, pos, toPlot, opts, col);
+            drawArrow(geoCenterBody(:, i), velAll(:, i), rot, pos, toPlot, opts, col);
         end
     end
 end
