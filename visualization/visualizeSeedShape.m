@@ -162,8 +162,8 @@ end
 % -------------------------------------------------------------------------
 if opts.showPlateCom
     for i = 1 : numStrips
-        % Strip centroid: chordwise centre = 0 (symmetric), spanwise = z_body
-        centroid_body = [0; 0; z_body(i)];
+        % Strip centroid: actual geometric centre (chordwise xgc, spanwise z_body).
+        centroid_body = [xgc(i); 0; z_body(i)];
         p = toPlot(toWorld(centroid_body));
         plot3(p(1), p(2), p(3), ...
               'o', 'Color', opts.colorPlateCom, ...
