@@ -1,0 +1,302 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue]{hyperref}
+
+% badges to flag the provenance of each effect
+\newcommand{\newin}{{\small\textbf{\color{blue}[3D]}}}          % new in 3D, no 2D analogue
+\newcommand{\drop}{{\small\textbf{\color{red!70!black}[omitted]}}} % 2D term deliberately dropped
+\newcommand{\heur}{{\small\textbf{\color{teal}[heuristic]}}}     % new, NOT traceable to minimal_imp
+\newcommand{\opt}{{\small\textbf{\color{orange!80!black}[toggle]}}} % off by default, opt-in
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\title{\vspace{-1.5em}6-DOF Seed Dynamics: Physics of the Strip-Theory Model}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-3em}
+
+This note describes the physics of the current 6-DOF (13-state) strip-theory seed
+model: what is carried over from the 2D Andersen--Pesavento--Wang model
+(\texttt{minimal\_imp}), what is genuinely new in 3D, and what has been added on top
+of both. It supersedes \texttt{seed3D\_physics.tex}. Badge key:
+\newin{} new in 3D but still traceable to the 2D physics;
+\drop{} a 2D term deliberately dropped (negligible in air, zero for the symmetric seed);
+\heur{} a new heuristic term with \emph{no} \texttt{minimal\_imp} analogue and a weaker
+empirical basis (carries a tuning coefficient);
+\opt{} off by default, enabled explicitly.
+
+\section*{Setup and conventions}
+The plate is sliced into spanwise \emph{strips}; each strip is a local 2D
+cross-section using the exact 2D coefficient laws. Body axes: $x$ = chordwise,
+$y$ = plate-normal, $z$ = spanwise. Everything is referenced to the center of
+mass (CoM). State: $[\,\mathbf{r}\ (\text{CoM, inertial});\ \mathbf{q}\ (\text{body}\to\text{world});\ \mathbf{v}\ (\text{inertial});\ \boldsymbol{\omega}\ (\text{body})\,]$.
+
+Two fixed body-frame references matter and must not be confused:
+the \emph{geometric center} (strip mid-chord / centroid, fixed in the body) is where
+velocity is sampled and where the aerodynamic force magnitude/direction are set; the
+\emph{center of pressure} (CoP, migrates with $\alpha$) is used \emph{only} as a
+moment arm. Per strip we use the in-plane relative velocity at the geometric center
+$\mathbf{v}_{ip}=(v_x,v_y)$ with speed $|v_{ip}|$, the local angle of attack
+$\alpha=\operatorname{atan2}(v_y,v_x)$, and the spanwise spin $\omega_z$. Coefficients
+$C_T,C_D,l_{cp},C_R,C_{D2},C_{D0}$ come from \texttt{computeAeroCoeffs}, together with
+two dimensionless tuning knobs $C_{fy},C_{\text{span}}$ (default $1$) that scale the
+two heuristic terms below.
+
+\section*{Per-strip forces}
+Each strip of chord $c$ and width $dz$ contributes the following, evaluated from the
+strip's geometric-center velocity. Lift is $\perp$ to the relative velocity, drag is
+$\parallel$ to $-\mathbf{v}$. Forces are summed over strips; gravity is added once at
+the end.
+
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{@{} l >{\raggedright\arraybackslash}p{0.34\textwidth} L @{}}
+\toprule
+\textbf{Force} & \textbf{Rough magnitude \& direction} & \textbf{Acts at} \\
+\midrule
+Translational lift &
+$\tfrac12\,\rho\,c\,dz\,C_T\,|v_{ip}|^2$, \ $\perp \mathbf{v}$ &
+center of pressure, $x_{cp}=x_{gc}+l_{cp}\cdot c$ (migrates with $\alpha$) \\
+
+Translational drag &
+$\tfrac12\,\rho\,c\,dz\,C_D\,|v_{ip}|^2$, \ $\parallel -\mathbf{v}$ &
+center of pressure (same as lift) \\
+
+Rotational lift \newin{} &
+$\tfrac12\,\rho\,c^2\,dz\,C_R\,\omega_z\,|v_{ip}|$, \ $\perp \mathbf{v}$ &
+geometric center / mid-chord ($l_{cr}=0$) \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent\textbf{Translational lift} — circulatory force from the flow turning
+around the plate; the workhorse that holds the seed up.\\
+\textbf{Translational drag} — pressure/separation resistance opposing motion.\\
+\textbf{Rotational lift} — Magnus-like lift from the plate's own spin shedding
+circulation. \newin{} In 3D only the spanwise spin $\omega_z$ drives it (the in-plane
+rotation each strip feels). It \emph{adds to the force} in the lift direction but its
+\emph{torque uses a different arm} (mid-chord, not CoP), so \texttt{computeStripForces}
+returns it separately.
+
+\section*{Per-strip torques (about the CoM)}
+A force at position $\mathbf{r}$ gives torque $(\mathbf{r}-\mathbf{c})\times\mathbf{F}$
+automatically---the cross product reproduces the 2D moment arm $l_\tau=l_{cp}-l_{cm}$
+with no special handling.
+
+\begin{tabularx}{\textwidth}{@{} l >{\raggedright\arraybackslash}p{0.40\textwidth} L @{}}
+\toprule
+\textbf{Torque} & \textbf{Rough equation} & \textbf{Arm / axis} \\
+\midrule
+Lift+drag moment ($T_t$) &
+$(\mathbf{r}_{cp}-\mathbf{c})\times \mathbf{F}_{\text{lift+drag}}$ &
+arm = CoP $-$ CoM \\
+
+Rotational-lift moment ($T_{cr}$) &
+$(\mathbf{r}_{gc}-\mathbf{c})\times \mathbf{F}_{\text{rot lift}}$ &
+arm = geometric center $-$ CoM \\
+
+Spin damping ($T_r$) &
+$-\tfrac{1}{128}\,\rho\,c^4\,dz\,C_{D2}\,\omega_z|\omega_z|\cdot\big[(\tfrac{2l_{cm}}{c}{+}1)^4{+}(\tfrac{2l_{cm}}{c}{-}1)^4\big]$ &
+about spanwise ($z$) axis \\
+
+Buoyancy couple ($T_b$) \drop{} &
+$-m_p\,g\,l_{cm}\cos\theta$ &
+weight at CoM vs.\ buoyancy at mid-chord \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent\textbf{$T_t$} — pitching torque from lift+drag acting ahead of/behind the
+CoM; the dominant driver of flutter vs.\ tumble.\\
+\textbf{$T_{cr}$} — moment of the rotational lift; kept separate because it acts at the
+geometric center ($l_{cr}=0$), a different chordwise point than $T_t$.\\
+\textbf{$T_r$} — nonlinear spin damping about the spanwise axis: each chordwise element
+sees drag $\propto(\omega_z r)^2$, and integrating $r\times$drag along the chord opposes
+spin. This is \emph{separate physics}, not captured by the strip lift/drag (which are
+evaluated at the geometric center where $\omega_z$ contributes no velocity).\\
+\textbf{$T_b$} \drop{} — pendulum-like restoring couple from weight and buoyancy at
+different points. Negligible in air ($m_p=\rho_{\text{air}}V\ll m$).
+
+\section*{Whole-seed effects (evaluated once, not per strip)}
+The per-strip loop leaves two gaps: it only damps spin about the spanwise axis, and it
+produces \emph{zero} spanwise ($z$) force. The strip lift/drag are sampled at each
+strip's geometric center, where spin about $x$ or $y$ contributes no in-plane velocity,
+so the earlier assumption that ``damping about the other axes is captured implicitly by
+$\boldsymbol\omega\times\mathbf r$'' is \emph{false}---rotation about $x$ and $y$ was
+effectively undamped, and pure spanwise sliding felt no force. The following whole-seed
+terms fill those gaps. Each is a single contribution for the entire seed (see
+\S\,``why once, not per strip'' below), added after the strip loop.
+
+\subsection*{Spin damping about the remaining axes}
+\begin{tabularx}{\textwidth}{@{} l >{\raggedright\arraybackslash}p{0.42\textwidth} L @{}}
+\toprule
+\textbf{Torque} & \textbf{Rough equation} & \textbf{Notes} \\
+\midrule
+Chordwise spin damping ($T_x$) \newin{} &
+$-\tfrac{1}{128}\,\rho\,S^4\,\bar c\,C_{D2}\,\omega_x|\omega_x|\cdot\big[(\tfrac{2l_{cm,z}}{S}{+}1)^4{+}(\tfrac{2l_{cm,z}}{S}{-}1)^4\big]$ &
+exact $T_r$ integral with the roles swapped: total span $S$ plays the ``chord'', mean
+chord $\bar c$ plays $dz$, and the lever is the CoM's \emph{spanwise} offset $l_{cm,z}$
+from the span geometric center. \\
+
+Normal spin damping ($T_y$) \heur{} &
+$-\tfrac{1}{128}\,\rho\,R^4\,C_{D0}\,C_{fy}\,\omega_y|\omega_y|,\quad R=\tfrac{S}{2}$ &
+No clean closed form: in-plane spin sweeps the plate edge-on (the $\approx 0$ added-mass
+mode), so this is a placeholder that reuses the same $\tfrac{1}{128}\rho\,(\text{length})^4$
+scaling and the measured $C_{D0}$, times a tuning knob $C_{fy}$. Meant to stay much
+smaller than $T_x,T_r$ (the plate spins easily about its normal). \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent Rotation about the chordwise axis ($\omega_x$) induces a velocity that varies
+with \emph{spanwise} position, so its damping integral runs over the span---the direct
+analogue of $T_r$'s chordwise integral, evaluated once over $S$. Rotation about the
+normal axis has no equivalent (the flow is edge-on both ways), hence the heuristic form.
+
+\subsection*{Spanwise-flow force \opt{}}
+When enabled (\texttt{seedParams.enableSpanForce}, default off), a single whole-seed
+force models flow in the span--normal ($z$--$y$) plane, exactly the strip lift/drag law
+with the \emph{span} $S$ as the ``chord'' and the mean chord $\bar c$ as the width (so
+$S\bar c$ = wing area). The bulk velocity is transported to the seed geometric center
+$\mathbf g$,
+\[
+  \mathbf v_{gc} = R^{\top}\mathbf v + \boldsymbol\omega\times(\mathbf g-\mathbf c),
+  \qquad
+  \beta = \operatorname{atan2}(v_{gc,y},\,v_{gc,z}),\quad
+  |v| = \sqrt{v_{gc,z}^2+v_{gc,y}^2},
+\]
+and with $L_0=\tfrac12\rho S\bar c\,C_T(\beta)\,|v|\,C_{\text{span}}$,
+$D_0=-\tfrac12\rho S\bar c\,C_D(\beta)\,|v|\,C_{\text{span}}$ the full force in the body
+frame is
+\[
+  \mathbf F_{\text{span}}^{\text{full}} =
+  \big[\,0,\ \underbrace{-L_0 v_{gc,z}+D_0 v_{gc,y}}_{\text{normal }(y)},\
+        \underbrace{L_0 v_{gc,y}+D_0 v_{gc,z}}_{\text{span }(z)}\,\big]^{\top}.
+\]
+
+\paragraph{Force: keep only the spanwise component.} The body-$z$ direction was
+previously unmodeled, so injecting $F_{\text{span},z}$ cannot double-count anything. The
+body-$y$ (normal) component is \emph{discarded from the force sum}: the strips already
+supply the normal force, and re-adding it here would double-count. (Body-$x$ is
+identically zero.) A purely in-plane trajectory has $v_{gc,z}=0\Rightarrow\beta=\pm90^\circ
+\Rightarrow C_T\approx0\Rightarrow F_{\text{span},z}\approx0$, so this force vanishes for
+in-plane motion and does not perturb the 2D-reducible behavior.
+
+\paragraph{Offset spanwise torque: use the full force.} The torque \emph{does} use the
+full force (including the discarded normal component) against a \emph{migrating span-CoP}
+$z_{cp}=z_{gc}+l_{cp}(\beta)\,S$:
+\[
+  \boldsymbol\tau_{\text{span}} = (\mathbf r_{cp}-\mathbf c)\times\mathbf F_{\text{span}}^{\text{full}},
+  \qquad \mathbf r_{cp}=[\,x_{gc,\text{chord}},\ 0,\ z_{cp}\,]^{\top}.
+\]
+This is a deliberate modeling choice. The strips supply the normal force and its
+chordwise-CoP moment, but strip theory assumes uniform spanwise loading and can
+\emph{never} produce the roll moment (about $x$) from a span-offset pressure center;
+crossing the span-CoP arm with the full force recovers exactly that missing roll moment,
+$\tau_x=-r_{cp,z}\,F_{\text{span},y}$. Note that with only the $z$-force this term would
+be inert---the span-CoP migrates along $z$, \emph{parallel} to that force, so its arm
+would contribute nothing and $\boldsymbol\tau_{\text{span}}$ would collapse to a pure yaw
+from any chordwise CoM offset (equivalent to applying at the geometric center; a
+commented-out one-line switch selects that alternative in the code).
+
+\paragraph{Why once, not per strip.} $T_r$ is summed per strip because its chordwise
+integral is identical at every span station, so $dz$-weighting reconstructs the full
+double integral. $T_x$ and the span force are the opposite: span \emph{is} the axis the
+strip loop discretizes, so re-integrating over the span per strip would replay (and badly
+overcount) the whole-span integral. They are therefore computed once, using seed-wide
+aggregates ($S$, $\bar c$, wing area, and the area-weighted geometric center).
+
+\section*{Added mass}
+Fluid the plate must accelerate with it; scales with fluid density, so small in air but
+retained. Built per strip and summed (\texttt{getAddedMass}).
+
+\begin{tabularx}{\textwidth}{@{} l L @{}}
+\toprule
+\textbf{Block} & \textbf{Content} \\
+\midrule
+Translational $A_{\text{trans}}$ &
+$\operatorname{diag}\!\big(0,\ \textstyle\sum \pi\rho(c/2)^2 dz,\ 0\big)$: only broadside (normal, $y$)
+entrains fluid; edge-on ($x$) and in-plane span ($z$) $\approx 0$. \\
+Rotational $A_{\text{rot}}$ &
+$I_{zz}=\sum(i_a+m_2 x_s^2)$ (the 2D $I_a$); \ \ $I_{xx}=\sum m_2 z_s^2$ \newin{}; \ \
+$I_{yy}\approx 0$ \newin{}; \ \ $I_{xz}=-\sum m_2 x_s z_s$ (zero if symmetric). \\
+\bottomrule
+\end{tabularx}
+
+\noindent Here $m_2=\pi\rho(c/2)^2 dz$, $i_a=\pi\rho c^4 dz/128$, and $x_s,z_s$ are the
+strip's chordwise/spanwise offsets from the CoM.
+
+\section*{What changes between 2D and 3D}
+
+\paragraph{Reference frame / Coriolis terms.} The 2D code works in the body frame, so it
+carries rotating-frame terms $(m{+}m_2)\omega v_{yp}$, $-(m{+}m_1)\omega v_{xp}$. We sum
+translational forces in the \emph{inertial} frame, where these vanish identically---provided
+$A_{\text{trans}}$ is rotated into the inertial frame, $R\,A_{\text{trans}}R^{\top}$, before
+dividing.
+
+\paragraph{Added-mass CoM-offset coupling. \drop{}} The 2D terms $-m_2\omega^2 l_{cm}$ and
+$+m_2\dot\omega\, l_{cm}$ (translation$\leftrightarrow$rotation added-mass coupling) are
+dropped. Zero for the symmetric seed ($l_{cm}=0$) and $\propto\rho_{\text{air}}$ otherwise.
+
+\paragraph{Gyroscopic torque. \newin{}} The rotational equation gains
+$\boldsymbol\omega\times(I\boldsymbol\omega)$, identically zero for scalar 2D rotation but
+real in 3D (spinning about one axis induces torque about others).
+
+\paragraph{Time-varying inertia $\dot I_G$. \newin{}} If the CoM drifts (e.g.\ a shifting
+nut), $I_G$ changes in time, adding $\dot I_G\,\boldsymbol\omega$ to the rotational equation.
+2D inertia was constant.
+
+\paragraph{Velocity sampling point.} 2D evaluates the reference velocity at the CoM
+($v_{yp}-\omega l_{cm}$); per strip we evaluate at the strip \emph{geometric center} and let
+$\boldsymbol\omega\times\mathbf r$ supply the rotational part. This is why $T_r$ (and now
+$T_x$) must stay explicit---geometric-center sampling misses the spin-drag distribution.
+
+\paragraph{Attitude. \newin{}} A full quaternion replaces the single angle $\theta$;
+orientation advances by $\dot{\mathbf q}=\tfrac12\,\mathbf q\otimes[0,\boldsymbol\omega]$.
+
+\paragraph{Effective weight.} 2D uses $(m-m_p)g$ (weight minus buoyancy); we use $m\,g$,
+consistent with dropping buoyancy.
+
+\paragraph{Whole-seed damping and spanwise force. \newin{}\,\heur{}\,\opt{}} New relative to
+both models: explicit damping about $x$ and $y$ ($T_x,T_y$) and an optional spanwise-flow
+force with an offset roll torque, all described above. $T_x$ is traceable to $T_r$; $T_y$
+and the span force are heuristics with tuning knobs.
+
+\section*{Where it fits in the implementation}
+Functions live under \texttt{physics/} with sub-folders \texttt{aero/}, \texttt{mass/}, and
+\texttt{helpers/}.
+
+\begin{tabularx}{\textwidth}{@{} l L @{}}
+\toprule
+\textbf{Function} & \textbf{Role} \\
+\midrule
+\texttt{seed6DOFODE} & main ODE right-hand side; orchestrates everything below \\
+\texttt{setupSeedShapeAndMass} & builds strip geometry, CoM$(t)$, $I_G(t)$, $\dot I_G(t)$ from a polyshape + nut \\
+\texttt{translationDynamics} / \texttt{rotationDynamics} & solve $\mathbf a$ (inertial) and $\boldsymbol\alpha$ (body, modified Euler) \\
+\addlinespace
+\texttt{mass/getMassProperties} & CoM $\mathbf c$, $I_G$, $\dot I_G$, added mass at time $t$ \\
+\texttt{mass/getAddedMass} & $A_{\text{trans}}$, $A_{\text{rot}}$ (tables above) \\
+\addlinespace
+\texttt{aero/computeAeroCoeffs} & $C_T,C_D,l_{cp},C_R,C_{D2},C_{D0}$ vs.\ $\alpha$; tuning $C_{fy},C_{\text{span}}$ \\
+\texttt{aero/computeAngleOfAttack} & $\alpha=\operatorname{atan2}(v_y,v_x)$ \\
+\texttt{aero/computeStripCoP} & chordwise CoP $x_{cp}=x_{gc}+l_{cp}\,c$ \\
+\texttt{aero/computeStripForces} & per-strip lift+drag ($T_t$ arm) and rotational lift ($T_{cr}$ arm), returned separately \\
+\texttt{aero/stripSpinDamping} & per-strip $T_r$ (spanwise-axis spin damping) \\
+\texttt{aero/spanSpinDamping} & whole-seed $T_x$ (chordwise-axis spin damping) \newin{} \\
+\texttt{aero/normalSpinDamping} & whole-seed $T_y$ (normal-axis spin damping) \heur{} \\
+\texttt{aero/computeSpanForce} & whole-seed spanwise-flow force + span-CoP fraction \heur{}\,\opt{} \\
+\addlinespace
+\texttt{helpers/computeSeedLocalVel} & per-strip body-frame velocity via $\mathbf v+\boldsymbol\omega\times\mathbf r$ \\
+\texttt{helpers/quatKinematics} & $\dot{\mathbf q}$ update \\
+\texttt{helpers/quatToRotm}, \texttt{quatMultiply} & quaternion utilities \\
+\bottomrule
+\end{tabularx}
+
+\end{document}

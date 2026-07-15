@@ -100,6 +100,8 @@ chordMean = wingArea / totalSpan;  % mean aerodynamic chord (m); exact for a
                                     % non-tapered wing, representative otherwise
 zGeoCenterSpan = sum(chord .* dz .* zGeo) / wingArea;  % area-weighted spanwise
                                                         % geometric centre (m)
+xGeoCenterChord = sum(chord .* dz .* xGeo) / wingArea; % area-weighted chordwise
+                                                        % geometric centre (m)
 comSpanOffset  = mp.c(3) - zGeoCenterSpan;   % CoM spanwise offset from that centre (m)
 
 % CD_rot, CD0, and C_fy are all alpha-independent (see computeAeroCoeffs), so
@@ -114,6 +116,64 @@ Tx = spanSpinDamping(totalSpan, chordMean, omega_x, comSpanOffset, CD_rot_const,
 % Characteristic radius for the normal-axis placeholder: half the total span (for now).
 R_normalSpin = totalSpan / 2;
 Ty = normalSpinDamping(R_normalSpin, omega_y, CD0_const, C_fy_const, rhoFluid);
+
+% =========================================================================
+% 3b. WHOLE-SEED SPANWISE-FLOW FORCE  (optional; fills the unmodeled body-z force)
+% =========================================================================
+% The chordwise strips produce zero body-z (spanwise) force, so a sideways-
+% sliding seed feels no aerodynamic resistance. When enabled, computeSpanForce
+% supplies a single whole-seed force from flow in the span-normal (z-y) plane.
+% Default OFF, so existing (validated, in-plane) behaviour is unchanged unless
+% explicitly requested via seedParams.enableSpanForce.
+enableSpanForce = isfield(seedParams, 'enableSpanForce') && seedParams.enableSpanForce;
+
+% Contributions default to zero so the post-loop accumulation is unconditional.
+F_span_apply = [0; 0; 0];   % force  contribution (added after the strip loop)
+tau_span     = [0; 0; 0];   % torque contribution (added after the strip loop)
+F_span_full  = [0; 0; 0];   % full span force, for intermediates (zero when disabled)
+
+if enableSpanForce
+    % Whole-seed geometric centre in body coords (area-weighted; body y = 0).
+    seedGeoCenter = [xGeoCenterChord; 0; zGeoCenterSpan];
+
+    % Bulk velocity transported to the geometric centre (transport theorem):
+    %   v_gc^body = R' * v_com^inertial + omega^body x (geoCentre - CoM)
+    v_com_body = R.' * v;
+    v_gc_body  = v_com_body + cross(omega, seedGeoCenter - mp.c);
+    vSpan_gc   = v_gc_body(3);   % spanwise    (body z) component
+    vNormal_gc = v_gc_body(2);   % plate-normal (body y) component
+
+    % Angle of attack in the span-normal plane: atan2(vNormal, vSpan). Reuse
+    % computeAngleOfAttack by placing span in its "chord" (first) slot.
+    beta       = computeAngleOfAttack([vSpan_gc; vNormal_gc; 0]);
+    spanCoeffs = computeAeroCoeffs(beta, aeroParams);
+
+    % Full span force [0; Fy; Fz] and its span-CoP fraction (fraction of span).
+    [F_span_full, l_cp_frac_span] = computeSpanForce(vSpan_gc, vNormal_gc, ...
+        totalSpan, chordMean, spanCoeffs.C_span, spanCoeffs, rhoFluid);
+
+    % --- FORCE: keep ONLY the body-z (spanwise) component ------------------
+    % Explicitly DISCARD body-x (already 0) and body-y (normal). The strips
+    % already model the normal-direction force; re-adding F_span_full(2) would
+    % double-count it. Only the body-z direction was previously unmodeled.
+    F_span_apply = [0; 0; F_span_full(3)];
+
+    % --- TORQUE: use the FULL force, including the discarded body-y --------
+    % Deliberate Option-B choice: F_span_full(2) is NOT summed into the net
+    % force above, but it IS used for the moment arm here. The strips supply the
+    % normal force and its chordwise-CoP moment, but strip theory assumes
+    % uniform spanwise loading and so can never produce the ROLL moment (about
+    % body x) from a span-offset pressure centre; crossing the migrating span-
+    % CoP arm with the full force recovers exactly that missing roll moment.
+    % (Were we to use only F_span_apply's z-component, the span-CoP -- which
+    % migrates along body z, parallel to that force -- would add no torque, and
+    % this would collapse to a pure yaw from any chordwise CoM offset, i.e. the
+    % same as applying at the geometric centre.)
+    zSpanCoP  = computeStripCoP(l_cp_frac_span, totalSpan, zGeoCenterSpan);  % migrating span CoP (body z)
+    r_spanCoP = [xGeoCenterChord; 0; zSpanCoP] - mp.c;   % span-CoP arm, relative to CoM
+    % r_spanCoP = seedGeoCenter - mp.c;   % <-- ALTERNATIVE: apply the torque at the geometric centre instead
+    tau_span  = cross(r_spanCoP, F_span_full);
+end
 
 for i = 1 : numStrips
 
@@ -162,10 +222,13 @@ for i = 1 : numStrips
     Tbody_all(:,i)= dTau;
 end
 
-% Add the whole-seed chordwise and normal-axis spin-damping torques (section
-% 3a) -- single contributions for the whole seed, not per-strip ones, so they
-% are added here rather than inside the strip-accumulation loop above.
-tau_body = tau_body + [Tx; Ty; 0];
+% Add the whole-seed contributions (sections 3a, 3b) -- single contributions
+% for the whole seed, not per-strip ones, so they are added here rather than
+% inside the strip-accumulation loop above:
+%   - spin-damping torques Tx (chordwise) and Ty (normal)
+%   - the optional spanwise-flow force (body-z only) and its torque
+tau_body    = tau_body    + [Tx; Ty; 0] + tau_span;
+F_aero_body = F_aero_body + F_span_apply;
 
 % =========================================================================
 % 4. SUM FORCES (inertial frame) + GRAVITY  ->  linear acceleration
@@ -214,6 +277,9 @@ if nargout > 1
     intermediates.F_total_inertial= F_total_inertial; % 3x1 aero + gravity, inertial
     intermediates.Tx_spanSpin     = Tx;               % whole-seed chordwise spin-damping torque (N*m)
     intermediates.Ty_normalSpin   = Ty;               % whole-seed normal-axis spin-damping torque (N*m)
+    intermediates.F_span_full     = F_span_full;      % 3x1 full span-flow force, body (y-component discarded from sum)
+    intermediates.F_span_apply    = F_span_apply;     % 3x1 span-flow force actually added (body-z only)
+    intermediates.tau_span        = tau_span;         % 3x1 span-flow torque, body (uses full force + migrating span CoP)
     intermediates.tau_body        = tau_body;         % 3x1 total torque, body
     intermediates.a_inertial      = a_inertial;       % 3x1 linear acceleration
     intermediates.alpha_body      = alpha_body;       % 3x1 angular acceleration
