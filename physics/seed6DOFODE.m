@@ -80,6 +80,41 @@ Tbody_all = zeros(3, numStrips);
 
 omega_z = omega(3);   % only spanwise spin drives the 2D rotational lift/damping
 
+% =========================================================================
+% 3a. WHOLE-SEED SPIN-DAMPING ABOUT THE CHORDWISE AND NORMAL AXES
+%     (x-axis and y-axis analogues of Tr; Tr itself only damps omega_z)
+% =========================================================================
+% stripSpinDamping (2D Tr) only damps spin about the SPANWISE axis (omega_z).
+% Rotation about the CHORDWISE axis (omega_x) induces a velocity that varies
+% with SPANWISE position instead, so the analogous quartic integral is redone
+% over the span (spanSpinDamping.m). Rotation about the NORMAL axis (omega_y)
+% has no clean analogous closed form (see normalSpinDamping.m) and uses a
+% placeholder quadratic form instead. Both are evaluated ONCE for the whole
+% seed rather than per strip -- see spanSpinDamping.m for why.
+omega_x = omega(1);   % chordwise angular velocity (rad/s)
+omega_y = omega(2);   % plate-normal angular velocity (rad/s)
+
+totalSpan = sum(dz);               % total spanwise extent of the seed (m)
+wingArea  = sum(chord .* dz);      % total wing area (m^2)
+chordMean = wingArea / totalSpan;  % mean aerodynamic chord (m); exact for a
+                                    % non-tapered wing, representative otherwise
+zGeoCenterSpan = sum(chord .* dz .* zGeo) / wingArea;  % area-weighted spanwise
+                                                        % geometric centre (m)
+comSpanOffset  = mp.c(3) - zGeoCenterSpan;   % CoM spanwise offset from that centre (m)
+
+% CD_rot, CD0, and C_fy are all alpha-independent (see computeAeroCoeffs), so
+% any alpha works here; fetch all three from a single call.
+constCoeffs  = computeAeroCoeffs(0, aeroParams);
+CD_rot_const = constCoeffs.CD_rot;
+CD0_const    = constCoeffs.CD0;
+C_fy_const   = constCoeffs.C_fy;
+
+Tx = spanSpinDamping(totalSpan, chordMean, omega_x, comSpanOffset, CD_rot_const, rhoFluid);
+
+% Characteristic radius for the normal-axis placeholder: half the total span (for now).
+R_normalSpin = totalSpan / 2;
+Ty = normalSpinDamping(R_normalSpin, omega_y, CD0_const, C_fy_const, rhoFluid);
+
 for i = 1 : numStrips
 
     % --- strip velocity (body frame); discard spanwise component for the 2D aero
@@ -127,6 +162,11 @@ for i = 1 : numStrips
     Tbody_all(:,i)= dTau;
 end
 
+% Add the whole-seed chordwise and normal-axis spin-damping torques (section
+% 3a) -- single contributions for the whole seed, not per-strip ones, so they
+% are added here rather than inside the strip-accumulation loop above.
+tau_body = tau_body + [Tx; Ty; 0];
+
 % =========================================================================
 % 4. SUM FORCES (inertial frame) + GRAVITY  ->  linear acceleration
 % =========================================================================
@@ -172,6 +212,8 @@ if nargout > 1
     intermediates.F_aero_body     = F_aero_body;      % 3x1 total aero force, body
     intermediates.F_aero_inertial = F_aero_inertial;  % 3x1 total aero force, inertial
     intermediates.F_total_inertial= F_total_inertial; % 3x1 aero + gravity, inertial
+    intermediates.Tx_spanSpin     = Tx;               % whole-seed chordwise spin-damping torque (N*m)
+    intermediates.Ty_normalSpin   = Ty;               % whole-seed normal-axis spin-damping torque (N*m)
     intermediates.tau_body        = tau_body;         % 3x1 total torque, body
     intermediates.a_inertial      = a_inertial;       % 3x1 linear acceleration
     intermediates.alpha_body      = alpha_body;       % 3x1 angular acceleration

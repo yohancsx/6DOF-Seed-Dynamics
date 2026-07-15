@@ -2,10 +2,12 @@ function animateSeed(seedParams, traj, opts)
 % ANIMATESEED  Render a seed trajectory to a video, frame by frame.
 %
 % Wraps visualizeSeedShape and visualizeSeedLocalVels in a per-frame loop.
-% Each frame is drawn, saved as a PNG into a folder, and afterwards all frames
-% are composited into a single video file. Designed to be extended: new
-% per-frame overlays (forces, torques, etc.) slot into renderFrame behind their
-% own opts toggle without touching the loop or compositor.
+% Each frame is drawn and streamed straight into the VideoWriter as it's
+% generated -- no per-frame PNG round-trip to disk unless opts.saveFrameImages
+% is set, so the common case (video only) skips a redundant write-then-re-read
+% of every frame. Designed to be extended: new per-frame overlays (forces,
+% torques, ...) slot into renderFrame behind their own opts toggle without
+% touching the loop.
 %
 % INPUTS
 %   seedParams : struct from setupSeedShapeAndMass.
@@ -20,14 +22,22 @@ function animateSeed(seedParams, traj, opts)
 %                       required only if velocities are drawn]
 %   opts       : (optional) struct of settings. Defaults below.
 %     -- output / video --
-%     .outputFolder    folder for PNG frames     (default: 'anim_frames')
 %     .videoFile       output video path         (default: 'seedAnimation.mp4')
 %     .fps             video frame rate           (default: 30)
-%     .resolution      export DPI                 (default: 150)
-%     .figSize         [w h] figure px            (default: [900 700])
-%     .frameStep       render every Nth frame     (default: 1)
-%     .keepFrames      keep PNGs after compositing (default: true)
-%     .visibleFigure   show the figure while rendering (default: false)
+%     .resolution      output DPI. Frames are captured with getframe at the
+%                      figure's actual pixel size, so this scales .figSize by
+%                      resolution/96 (96 DPI = native figSize, no scaling) to
+%                      approximate what a DPI-based export would have produced
+%                                                        (default: 150)
+%     .figSize         [w h] BASE figure px, before .resolution scaling
+%                                            (default: [900 700])
+%     .frameStep       render every Nth STATE as a video frame (default: 1)
+%     .saveFrameImages also save individual rendered frames as PNGs, in
+%                      addition to the video                    (default: false)
+%     .outputFolder    folder for saved PNG frames -- only used when
+%                      .saveFrameImages is true       (default: 'anim_frames')
+%     .frameImageStep  of the RENDERED frames, save every Nth one as a PNG
+%                      when .saveFrameImages is true   (default: 10)
 %     -- content toggles --
 %     .showShape       draw the seed each frame   (default: true)
 %     .showVels        draw local velocities      (default: true)
@@ -45,6 +55,9 @@ function animateSeed(seedParams, traj, opts)
 %     .zoomFactor      half-window = zoomFactor * longest seed dimension,
 %                      so the seed fills the view  (default: 2)
 %     .view            [az el] camera angle  (default: [35 20])
+%     .fontScale       multiplier on the default axes font size, applied to
+%                      the title, tick labels, and axis labels together
+%                      (via ax.FontSize)                (default: 1.5)
 
 % =========================================================================
 % 0. DEFAULT OPTIONS
@@ -53,14 +66,14 @@ if nargin < 3 || isempty(opts)
     opts = struct();
 end
 
-opts = setDefault(opts, 'outputFolder',    'anim_frames');
 opts = setDefault(opts, 'videoFile',       'seedAnimation.mp4');
 opts = setDefault(opts, 'fps',             30);
 opts = setDefault(opts, 'resolution',      150);
 opts = setDefault(opts, 'figSize',         [900 700]);
 opts = setDefault(opts, 'frameStep',       1);
-opts = setDefault(opts, 'keepFrames',      true);
-opts = setDefault(opts, 'visibleFigure',   false);
+opts = setDefault(opts, 'saveFrameImages', false);
+opts = setDefault(opts, 'outputFolder',    'anim_frames');
+opts = setDefault(opts, 'frameImageStep',  10);
 
 opts = setDefault(opts, 'showShape',       true);
 opts = setDefault(opts, 'showVels',        true);
@@ -76,6 +89,7 @@ opts = setDefault(opts, 'trajLineWidth',    1.5);
 opts = setDefault(opts, 'axisMode',  'follow');
 opts = setDefault(opts, 'zoomFactor', 2);
 opts = setDefault(opts, 'view',      [35 20]);
+opts = setDefault(opts, 'fontScale',  1.5);
 
 % =========================================================================
 % 1. PRELIMINARIES
@@ -106,24 +120,70 @@ end
 % Precompute fixed axis limits once (only used in 'fixed' mode).
 fixedLimits = computeFixedLimits(trajPlot, longestDim);
 
-% Fresh output folder.
-if ~exist(opts.outputFolder, 'dir')
+% Fresh output folder, only needed if individual frame images are saved.
+if opts.saveFrameImages && ~exist(opts.outputFolder, 'dir')
     mkdir(opts.outputFolder);
 end
 
 % =========================================================================
-% 2. RENDER LOOP -- one PNG per frame
+% 2. RENDER LOOP -- stream frames straight into the video writer
 % =========================================================================
-% One reusable figure (cleared each frame) to avoid leaking handles.
+% One reusable figure AND axes, both created once. Contents are cleared each
+% frame with cla(ax) rather than rebuilding the axes from scratch (clf +
+% axes()) -- axes creation is one of the more expensive per-frame costs, and
+% is entirely avoidable since the axes' static properties (below) don't
+% change frame to frame. Kept VISIBLE -- an invisible ('Visible','off')
+% figure combined with the transparent/OpenGL-rendered seed patches produced
+% black, badly-slow exports; a visible figure renders correctly and lets you
+% watch it live.
+resScale  = opts.resolution / 96;               % DPI relative to a 96 DPI screen
+figPxSize = round(opts.figSize .* resScale);    % actual on-screen/captured size
+
 fig = figure('Color', 'w', ...
-             'Position', [100, 100, opts.figSize(1), opts.figSize(2)]);
-if ~opts.visibleFigure
-    set(fig, 'Visible', 'off');
+             'Position', [100, 100, figPxSize(1), figPxSize(2)]);
+ax  = axes('Parent', fig);
+hold(ax, 'on');
+
+% Static axes properties -- set ONCE. cla(ax) inside the loop clears plotted
+% content (patches/lines/markers) but does not touch axes properties like
+% these, or the Title/XLabel/YLabel/ZLabel objects, so repeating them every
+% frame (as the previous version did) was pure waste.
+daspect(ax, [1 1 1]);                 % equal aspect (cube)
+grid(ax, 'on');
+view(ax, opts.view);
+xlabel(ax, 'World X (m)');
+ylabel(ax, 'World Z (m)');
+zlabel(ax, 'World Y (m) -- up');
+ax.FontSize = get(groot, 'defaultAxesFontSize') * opts.fontScale;   % scales
+    % ticks directly; title/axis labels scale with it via their default
+    % TitleFontSizeMultiplier/LabelFontSizeMultiplier.
+
+% 'fixed' axis limits don't change per frame either -- set once here.
+% 'follow' limits track the seed's position, so those are still set inside
+% the loop below.
+if strcmpi(opts.axisMode, 'fixed')
+    xlim(ax, fixedLimits(1, :)); ylim(ax, fixedLimits(2, :)); zlim(ax, fixedLimits(3, :));
 end
 
-frameFiles = strings(1, numel(frameIdx));   % saved filenames, in order
+% Pick a VideoWriter profile from the file extension. MPEG-4 needs platform
+% support (Windows/macOS); fall back to Motion JPEG AVI elsewhere. Opened
+% before the loop so each frame can be written as soon as it's captured,
+% instead of round-tripping every frame through a PNG on disk first.
+[~, ~, ext] = fileparts(opts.videoFile);
+if strcmpi(ext, '.mp4')
+    profile = 'MPEG-4';
+else
+    profile = 'Motion JPEG AVI';
+end
+vw = VideoWriter(opts.videoFile, profile);
+vw.FrameRate = opts.fps;
+open(vw);
 
-for f = 1 : numel(frameIdx)
+numRenderFrames = numel(frameIdx);
+savedFrameFiles = strings(1, 0);   % PNGs actually saved, if any
+lastPctPrinted  = -1;              % forces a print at the first 0%+ boundary
+
+for f = 1 : numRenderFrames
     k = frameIdx(f);   % index into the trajectory arrays
 
     % --- Per-frame pose -------------------------------------------------
@@ -138,72 +198,55 @@ for f = 1 : numel(frameIdx)
     posDatum = comW - R_b2w * comB; %could be a source of bugs
 
     % --- Draw the frame -------------------------------------------------
-    clf(fig);
-    ax = axes('Parent', fig);
-    hold(ax, 'on');
+    cla(ax);   % clear plotted content only -- axes object/properties persist
 
     renderFrame(seedParams, traj, k, R_b2w, posDatum, comB, q, ...
                 trajPlot, toPlot, canDoVels, opts);
 
-    % --- Axes: limits, aspect, view, labels -----------------------------
+    % --- Axis limits: only 'follow' mode changes per frame; 'fixed' was
+    % already set once above. -----------------------------------------------
     if strcmpi(opts.axisMode, 'follow')
         lims = computeFollowLimits(toPlot(comW), longestDim, opts.zoomFactor);
-    else
-        lims = fixedLimits;
+        xlim(ax, lims(1, :)); ylim(ax, lims(2, :)); zlim(ax, lims(3, :));
     end
-    xlim(ax, lims(1, :)); ylim(ax, lims(2, :)); zlim(ax, lims(3, :));
-    daspect(ax, [1 1 1]);                 % equal aspect (cube)
-    grid(ax, 'on');
-    view(ax, opts.view);
-    xlabel(ax, 'World X (m)');
-    ylabel(ax, 'World Z (m)');
-    zlabel(ax, 'World Y (m) -- up');
     if isfield(traj, 't')
-        title(ax, sprintf('t = %.3f s   (frame %d/%d)', traj.t(k), f, numel(frameIdx)));
+        title(ax, sprintf('t = %.3f s   (frame %d/%d)', traj.t(k), f, numRenderFrames));
     else
-        title(ax, sprintf('frame %d/%d', f, numel(frameIdx)));
+        title(ax, sprintf('frame %d/%d', f, numRenderFrames));
     end
 
-    % --- Save frame image ----------------------------------------------
-    fname = fullfile(opts.outputFolder, sprintf('frame_%05d.png', f));
-    exportgraphics(fig, fname, 'Resolution', opts.resolution);
-    frameFiles(f) = fname;
+    % --- Write directly to the video (no PNG round-trip) -----------------
+    % getframe grabs the already-rendered pixel buffer directly, instead of
+    % exportgraphics's print-style re-render -- much faster in a per-frame
+    % loop, and doesn't hit the invisible-figure black-render bug.
+    drawnow;
+    frame = getframe(fig);
+    writeVideo(vw, frame.cdata);
+
+    % --- Optionally also save this frame as a PNG -------------------------
+    if opts.saveFrameImages && mod(f - 1, opts.frameImageStep) == 0
+        fname = fullfile(opts.outputFolder, sprintf('frame_%05d.png', f));
+        imwrite(frame.cdata, fname);
+        savedFrameFiles(end+1) = fname; %#ok<AGROW> -- opt-in path, rarely grows
+    end
+
+    % --- Progress, printed roughly every 10% ------------------------------
+    pct = floor(100 * f / numRenderFrames);
+    if pct >= lastPctPrinted + 10
+        fprintf('animateSeed: %d%% done (%d/%d frames)\n', pct, f, numRenderFrames);
+        lastPctPrinted = pct;
+    end
 end
 
 close(fig);
-
-% =========================================================================
-% 3. COMPOSITE FRAMES INTO A VIDEO
-% =========================================================================
-% Pick a VideoWriter profile from the file extension. MPEG-4 needs platform
-% support (Windows/macOS); fall back to Motion JPEG AVI elsewhere.
-[~, ~, ext] = fileparts(opts.videoFile);
-if strcmpi(ext, '.mp4')
-    profile = 'MPEG-4';
-else
-    profile = 'Motion JPEG AVI';
-end
-
-vw = VideoWriter(opts.videoFile, profile);
-vw.FrameRate = opts.fps;
-open(vw);
-for f = 1 : numel(frameFiles)
-    img = imread(frameFiles(f));
-    writeVideo(vw, img);
-end
 close(vw);
-% 
-% % =========================================================================
-% % 4. OPTIONAL CLEANUP
-% % =========================================================================
-% if ~opts.keepFrames
-%     for f = 1 : numel(frameFiles)
-%         delete(frameFiles(f));
-%     end
-% end
 
-fprintf('animateSeed: wrote %d frames to "%s" and video "%s".\n', ...
-        numel(frameFiles), opts.outputFolder, opts.videoFile);
+if opts.saveFrameImages
+    fprintf('animateSeed: wrote %d frames to video "%s" (%d frame images saved to "%s").\n', ...
+            numRenderFrames, opts.videoFile, numel(savedFrameFiles), opts.outputFolder);
+else
+    fprintf('animateSeed: wrote %d frames to video "%s".\n', numRenderFrames, opts.videoFile);
+end
 
 end   % animateSeed
 

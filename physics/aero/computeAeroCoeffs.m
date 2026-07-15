@@ -21,7 +21,7 @@ function coeffs = computeAeroCoeffs(alpha, aero)
 %           strip velocity (not the negated wind) so the branch logic lines up.
 %   aero  : (optional) struct of empirical constants. If omitted, the exact
 %           minimal_imp values are used (see defaultAeroParams below).
-%           Fields: CL1, CL2, CD0, CD1, CD2, CR, CCP0, CCP1, CCP2, as, d.
+%           Fields: CL1, CL2, CD0, CD1, CD2, CR, CCP0, CCP1, CCP2, as, d, C_fy.
 %
 % OUTPUT (struct, each field matches the size of alpha unless noted)
 %   coeffs.CT        : lift / normal-force coefficient (the 2D "CT_alpha").
@@ -36,6 +36,13 @@ function coeffs = computeAeroCoeffs(alpha, aero)
 %   coeffs.CD_rot    : rotational spin-damping coefficient (= CD2). The
 %                      coefficient on the Tr ~ omega*|omega| damping torque.
 %                      CONSTANT (alpha-independent).
+%   coeffs.CD0       : zero-incidence/parasitic drag coefficient. Used
+%                      directly as the spin-damping coefficient about the
+%                      plate-normal (body y) axis (normalSpinDamping.m).
+%                      CONSTANT (alpha-independent).
+%   coeffs.C_fy      : tuning factor for the plate-normal spin-damping torque
+%                      (normalSpinDamping.m); no minimal_imp analogue.
+%                      CONSTANT (alpha-independent).
 
 % -------------------------------------------------------------------------
 % 0. PARAMETERS
@@ -49,6 +56,7 @@ CD0 = aero.CD0;  CD1 = aero.CD1;  CD2 = aero.CD2;      % drag constants
 CR  = aero.CR;                                         % rotational-lift constant
 CCP0 = aero.CCP0; CCP1 = aero.CCP1; CCP2 = aero.CCP2;  % CoP constants
 as = aero.as;    d = aero.d;                           % stall angle, blend width
+C_fy = aero.C_fy;                                      % y-axis spin-damping tuning factor
 
 % -------------------------------------------------------------------------
 % 1. SMOOTH ATTACHED<->SEPARATED BLEND WEIGHTS  (2D lines 122-123)
@@ -114,6 +122,8 @@ coeffs.CD        = CD;     % drag coefficient              (alpha-dependent)
 coeffs.l_cp_frac = lcp;    % CoP fraction of chord         (alpha-dependent)
 coeffs.CR        = CR;     % rotational-lift coefficient   (constant)
 coeffs.CD_rot    = CD2;    % rotational damping coefficient (constant, = CD2)
+coeffs.CD0       = CD0;    % zero-incidence drag coefficient (constant)
+coeffs.C_fy      = C_fy;   % y-axis spin-damping tuning factor (constant)
 
 end   % computeAeroCoeffs
 
@@ -134,4 +144,6 @@ function aero = defaultAeroParams()
     aero.CCP2 = 0.2;          % CoP: high-angle offset (separated)
     aero.as   = 14*pi/180;    % stall angle (~14 deg)
     aero.d    =  6*pi/180;    % blend width (~6 deg)
+    aero.C_fy = 1.0;          % y-axis (plate-normal) spin-damping tuning factor
+                               % (no minimal_imp analogue; see normalSpinDamping.m)
 end
