@@ -1,0 +1,183 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue]{hyperref}
+
+% badge to flag effects that are new in 3D (absent from the 2D model)
+\newcommand{\newin}{{\small\textbf{\color{blue}[3D]}}}
+\newcommand{\drop}{{\small\textbf{\color{red!70!black}[omitted]}}}
+
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\title{\vspace{-1.5em}3D Seed Dynamics: Physics of the Strip-Theory Model}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-3em}
+
+This note summarizes the physics carried over from the 2D Andersen--Pesavento--Wang
+model (\texttt{minimal\_imp}) into the 3D strip-theory model, what each piece does
+physically, and where it lands in the code. The \newin{} badge marks effects that
+are genuinely new in 3D; \drop{} marks 2D terms we deliberately drop (all negligible
+for a seed in air and exactly zero for the symmetric test seed).
+
+\section*{Setup and conventions}
+The plate is sliced into spanwise \emph{strips}; each strip is a local 2D
+cross-section using the exact 2D coefficient laws. Body axes: $x$ = chordwise,
+$y$ = plate-normal, $z$ = spanwise. Everything is referenced to the center of
+mass (CoM). State: $[\,\mathbf{r}\ (\text{CoM, inertial});\ \mathbf{q}\ (\text{body}\to\text{world});\ \mathbf{v}\ (\text{inertial});\ \boldsymbol{\omega}\ (\text{body})\,]$.
+Per strip we use the in-plane relative velocity $\mathbf{v}_{ip}=(v_x,v_y)$ with
+speed $|v_{ip}|$, the local angle of attack $\alpha=\operatorname{atan2}(v_y,v_x)$,
+and the spanwise spin component $\omega_z$. Coefficients $C_T,C_D,C_R,C_{D2}$ come
+from \texttt{computeAeroCoeffs}.
+
+\section*{Per-strip forces}
+Each strip of chord $c$ and width $dz$ contributes the following. Lift is
+$\perp$ to the relative velocity, drag is $\parallel$ to $-\mathbf{v}$. Forces are
+summed over strips; gravity is added once at the end.
+
+\renewcommand{\arraystretch}{1.4}
+\begin{tabularx}{\textwidth}{@{} l >{\raggedright\arraybackslash}p{0.34\textwidth} L @{}}
+\toprule
+\textbf{Force} & \textbf{Rough magnitude \& direction} & \textbf{Acts at} \\
+\midrule
+Translational lift &
+$\tfrac12\,\rho\,c\,dz\,C_T\,|v_{ip}|^2$, \ $\perp \mathbf{v}$ &
+center of pressure, $x_{cp}=l_{cp}\cdot c$ (migrates with $\alpha$) \\
+
+Translational drag &
+$\tfrac12\,\rho\,c\,dz\,C_D\,|v_{ip}|^2$, \ $\parallel -\mathbf{v}$ &
+center of pressure (same as lift) \\
+
+Rotational lift \newin{} &
+$\tfrac12\,\rho\,c^2\,dz\,C_R\,\omega_z\,|v_{ip}|$, \ $\perp \mathbf{v}$ &
+mid-chord ($l_{cr}=0$) \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent\textbf{Translational lift} — circulatory force from the flow turning
+around the plate; the workhorse that holds the seed up.\\
+\textbf{Translational drag} — pressure/separation resistance opposing motion.\\
+\textbf{Rotational lift} — Magnus-like lift from the plate's own spin shedding
+circulation. \newin{} In 3D only the spanwise spin $\omega_z$ drives it (the
+in-plane rotation each strip feels), and it acts at mid-chord, not the CoP.
+
+\section*{Per-strip torques (about the CoM)}
+In 3D a force at position $\mathbf{r}$ gives torque $(\mathbf{r}-\mathbf{c})\times\mathbf{F}$
+automatically---the cross product reproduces the 2D moment arm
+$l_\tau=l_{cp}-l_{cm}$ with no special handling.
+
+\begin{tabularx}{\textwidth}{@{} l >{\raggedright\arraybackslash}p{0.36\textwidth} L @{}}
+\toprule
+\textbf{Torque} & \textbf{Rough equation} & \textbf{Arm / axis} \\
+\midrule
+Lift+drag moment ($T_t$) &
+$(\mathbf{r}_{cp}-\mathbf{c})\times \mathbf{F}_{\text{lift+drag}}$ &
+arm = CoP $-$ CoM \\
+
+Rotational-lift moment ($T_{cr}$) &
+$(\mathbf{r}_{lcr}-\mathbf{c})\times \mathbf{F}_{\text{rot lift}}$ &
+arm = mid-chord $-$ CoM \\
+
+Spin damping ($T_r$) &
+$-\tfrac{1}{128}\,\rho\,c^4\,dz\,C_{D2}\,\omega_z|\omega_z|\cdot(\text{end factor})$ &
+about spanwise ($z$) axis \\
+
+Buoyancy couple ($T_b$) \drop{} &
+$-m_p\,g\,l_{cm}\cos\theta$ &
+weight at CoM vs.\ buoyancy at mid-chord \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent\textbf{$T_t$} — the pitching torque from lift+drag acting ahead of/behind
+the CoM; the dominant driver of flutter vs.\ tumble.\\
+\textbf{$T_{cr}$} — moment of the rotational lift; kept separate because it acts at
+a different chordwise point ($l_{cr}=0$) than $T_t$.\\
+\textbf{$T_r$} — nonlinear spin damping: each chordwise element sees drag
+$\propto(\omega r)^2$, and integrating $r\times$drag along the chord opposes spin.
+This is \emph{separate physics}, not captured by the strip lift/drag (which are
+evaluated at mid-chord where $\omega_z$ contributes no velocity). \newin{} Taken
+about the spanwise axis only; damping about the other axes is captured implicitly
+through the $\boldsymbol\omega\times\mathbf r$ term in each strip's velocity.\\
+\textbf{$T_b$} \drop{} — pendulum-like restoring couple from weight and buoyancy
+acting at different points. Negligible in air ($m_p=\rho_{\text{air}}V\ll m$).
+
+\section*{Added mass}
+Fluid the plate must accelerate with it; scales with fluid density, so small in air
+but retained. Built per strip and summed (\texttt{getAddedMass}).
+
+\begin{tabularx}{\textwidth}{@{} l L @{}}
+\toprule
+\textbf{Block} & \textbf{Content} \\
+\midrule
+Translational $A_{\text{trans}}$ &
+$\operatorname{diag}\!\big(0,\ \textstyle\sum \pi\rho(c/2)^2 dz,\ 0\big)$: only broadside (normal, $y$)
+entrains fluid; edge-on ($x$) and in-plane span ($z$) $\approx 0$. \\
+Rotational $A_{\text{rot}}$ &
+$I_{zz}=\sum(i_a+m_2 x_s^2)$ (the 2D $I_a$); \ \ $I_{xx}=\sum m_2 z_s^2$ \newin{}; \ \
+$I_{yy}\approx 0$ \newin{}; \ \ $I_{xz}=-\sum m_2 x_s z_s$ (zero if symmetric). \\
+\bottomrule
+\end{tabularx}
+
+\noindent Here $m_2=\pi\rho(c/2)^2 dz$, $i_a=\pi\rho c^4 dz/128$, and $x_s,z_s$ are
+the strip's chordwise/spanwise offsets from the CoM.
+
+\section*{What changes between 2D and 3D}
+
+\paragraph{Reference frame / Coriolis terms.} The 2D code works in the body frame,
+so it carries rotating-frame terms $(m{+}m_2)\omega v_{yp}$, $-(m{+}m_1)\omega v_{xp}$.
+We sum translational forces in the \emph{inertial} frame, where these vanish
+identically---provided $A_{\text{trans}}$ is rotated into the inertial frame,
+$R\,A_{\text{trans}}R^{\top}$, before dividing.
+
+\paragraph{Added-mass CoM-offset coupling. \drop{}} The 2D terms
+$-m_2\omega^2 l_{cm}$ and $+m_2\dot\omega\, l_{cm}$ are the translation$\leftrightarrow$rotation
+added-mass coupling (fluid centered at mid-chord, CoM offset). We neglect the
+added-mass cross-block, dropping these. Justified: zero for the symmetric seed
+($l_{cm}=0$) and $\propto\rho_{\text{air}}$ otherwise.
+
+\paragraph{Gyroscopic torque. \newin{}} The rotational equation gains
+$\boldsymbol\omega\times(I\boldsymbol\omega)$, which is identically zero for scalar
+2D rotation but real in 3D (spinning about one axis induces torque about others).
+
+\paragraph{Time-varying inertia $\dot I_G$. \newin{}} If the CoM drifts (e.g.\ a
+shifting nut), $I_G$ changes in time, adding $\dot I_G\,\boldsymbol\omega$ to the
+rotational equation. 2D inertia was constant.
+
+\paragraph{Velocity sampling point.} 2D evaluates the reference velocity at the
+CoM ($v_{yp}-\omega l_{cm}$); per strip we evaluate at the strip mid-chord and let
+$\boldsymbol\omega\times\mathbf r$ supply the rotational part. This is why $T_r$ must
+stay explicit---mid-chord sampling misses the chordwise spin-drag distribution.
+
+\paragraph{Attitude. \newin{}} A full quaternion replaces the single angle
+$\theta$; orientation advances by quaternion kinematics
+$\dot{\mathbf q}=\tfrac12\,\mathbf q\otimes[0,\boldsymbol\omega]$.
+
+\paragraph{Effective weight.} 2D uses $(m-m_p)g$ (weight minus buoyancy); we use
+$m\,g$, consistent with dropping buoyancy.
+
+\section*{Where it fits in the implementation}
+\begin{tabularx}{\textwidth}{@{} l L @{}}
+\toprule
+\textbf{Function} & \textbf{Role} \\
+\midrule
+\texttt{getMassProperties} & CoM $\mathbf c$, $I_G$, $\dot I_G$, and added mass at time $t$ \\
+\texttt{getAddedMass} & $A_{\text{trans}}$, $A_{\text{rot}}$ (tables above) \\
+\texttt{computeSeedLocalVel} & per-strip body-frame velocity via $\mathbf v+\boldsymbol\omega\times\mathbf r$ \\
+\texttt{computeAeroCoeffs} & $C_T,C_D,l_{cp},C_R,C_{D2}$ vs.\ $\alpha$ \\
+\texttt{stripForce} \emph{(to write)} & the three forces in the force table \\
+\texttt{stripSpinDamping} \emph{(to write)} & the $T_r$ term \\
+\texttt{quatKinematics} \emph{(to write)} & $\dot{\mathbf q}$ update \\
+translation / rotation EOM & sum forces (+gravity) $\to \mathbf a$; sum torques $+\,\boldsymbol\omega\times(I\boldsymbol\omega)+\dot I_G\boldsymbol\omega \to \boldsymbol\alpha$ \\
+\bottomrule
+\end{tabularx}
+
+\end{document}
