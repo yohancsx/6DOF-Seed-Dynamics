@@ -60,7 +60,7 @@ end
 %    to the pitch/yaw Euler angles -- see file header for the reasoning.
 % -------------------------------------------------------------------------
 posPlot   = [posWorld(1,:); posWorld(3,:); posWorld(2,:)];    % 3xN
-eulerPlot = [eulerRaw(:,1),  eulerRaw(:,3),  eulerRaw(:,2)];  % Nx3: [roll, yaw, pitch]
+eulerPlot = [eulerRaw(:,1),  eulerRaw(:,3),  eulerRaw(:,2)];  % Nx3: [roll, pitch, yaw]
 
 % -------------------------------------------------------------------------
 % 3. First Figure: 3D CoM trajectory
@@ -82,7 +82,7 @@ plot(t, eulerPlot(:,2), 'LineWidth', opts.lineWidth);
 plot(t, eulerPlot(:,3), 'LineWidth', opts.lineWidth);
 grid on;
 xlabel('Time (s)'); ylabel('Angle (rad)');
-legend('Roll (about X)', 'Yaw (about Z, spanwise)', 'Pitch (about Y, vertical)', ...
+legend('Roll (about X)', 'Pitch (about Z, spanwise)', 'Yaw (about Y, vertical)', ...
        'Location', 'best');
 title('Euler angles');
 
