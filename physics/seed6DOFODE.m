@@ -65,6 +65,8 @@ chord = seedParams.strips.chord;
 dz    = seedParams.strips.dz;
 xGeo  = seedParams.strips.xgc_body;       % strip geometric-centre chordwise position (body x)
 zGeo  = seedParams.strips.zgc_body;       % strip geometric-centre spanwise position (body z)
+liftMult = seedParams.strips.liftMult;    % 1xM per-strip translational-lift multipliers
+dragMult = seedParams.strips.dragMult;    % 1xM per-strip drag multipliers
 numStrips = numel(chord);
 
 F_aero_body = [0; 0; 0];
@@ -194,8 +196,11 @@ for i = 1 : numStrips
     r_geoCenter = [xGeo(i); 0; zGeo(i)] - mp.c;   % geometric centre rel. to CoM (arm for rot. lift)
 
     % --- forces (body frame): translational lift+drag, and rotational lift
+    % Per-strip liftMult/dragMult scale this strip's translational lift and drag
+    % only (not the rotational lift).
     [F_transl, F_rotLift] = computeStripForces(vChord, vNormal, chord(i), dz(i), ...
-                                               omega_z, coeffs, rhoFluid);
+                                               omega_z, coeffs, rhoFluid, ...
+                                               liftMult(i), dragMult(i));
     dF = F_transl + F_rotLift;
 
     % --- torques about the CoM: each force at its own chordwise point

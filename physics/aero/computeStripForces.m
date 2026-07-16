@@ -1,4 +1,4 @@
-function [F_transl, F_rotLift] = computeStripForces(vChord, vNormal, chord, dz, omega_z, coeffs, rhoFluid)
+function [F_transl, F_rotLift] = computeStripForces(vChord, vNormal, chord, dz, omega_z, coeffs, rhoFluid, liftMult, dragMult)
 % COMPUTESTRIPFORCES  Aerodynamic forces on one strip, body frame.
 %
 % Reproduces the 2D quasi-steady force model (minimal_imp lines 174-185) per
@@ -24,18 +24,28 @@ function [F_transl, F_rotLift] = computeStripForces(vChord, vNormal, chord, dz, 
 %              spin that drives the 2D rotational lift.
 %   coeffs   : struct from computeAeroCoeffs (uses .CT, .CD, .CR).
 %   rhoFluid : fluid density (kg/m^3).
+%   liftMult : (optional) static multiplier on this strip's TRANSLATIONAL lift,
+%              a per-strip tuning/morphology knob. Default 1 (no change). Does
+%              NOT scale the rotational lift.
+%   dragMult : (optional) static multiplier on this strip's drag. Default 1.
 %
 % OUTPUTS
 %   F_transl  : 3x1 translational lift + drag, body frame (N). z-component 0.
 %   F_rotLift : 3x1 rotational lift,           body frame (N). z-component 0.
 
+    % Per-strip lift/drag multipliers default to 1 (no scaling) when omitted.
+    if nargin < 8 || isempty(liftMult); liftMult = 1; end
+    if nargin < 9 || isempty(dragMult); dragMult = 1; end
+
     % In-plane speed (spanwise component already discarded upstream).
     v_ip = sqrt(vChord^2 + vNormal^2);
 
     % Magnitude factors (each carries one power of speed; 0.5*rho*area = 0.5*rho*chord*dz).
-    Lt_0 = 0.5 * rhoFluid * chord * dz * coeffs.CT * v_ip;      % translational lift  [2D L_0, CT part]
-    D_0  = -0.5 * rhoFluid * chord * dz * coeffs.CD * v_ip;     % drag (opposes v)    [2D D_0]
-    Lr_0 = -0.5 * rhoFluid * chord^2 * dz * coeffs.CR * omega_z;% rotational lift      [2D L_0, CR part]
+    % liftMult/dragMult scale the translational lift and drag only; the rotational
+    % lift factor Lr_0 is deliberately left unscaled.
+    Lt_0 = liftMult * 0.5 * rhoFluid * chord * dz * coeffs.CT * v_ip;   % translational lift [2D L_0, CT part]
+    D_0  = -dragMult * 0.5 * rhoFluid * chord * dz * coeffs.CD * v_ip;  % drag (opposes v)   [2D D_0]
+    Lr_0 = -0.5 * rhoFluid * chord^2 * dz * coeffs.CR * omega_z;        % rotational lift    [2D L_0, CR part]
 
     % Assemble in the body frame. Lift ~ (vNormal, -vChord); drag ~ (vChord, vNormal).
     F_transl  = [ Lt_0*vNormal + D_0*vChord ;

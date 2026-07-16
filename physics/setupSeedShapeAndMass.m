@@ -26,6 +26,15 @@ function seedParamsFull = setupSeedShapeAndMass(seedParamsIn)
 %                        the shape into discrete plates for inertia calculation.
 %                        If absent, the shape is divided into numStrips equal
 %                        spanwise intervals.
+%     .liftMult        - (OPTIONAL) static per-strip multiplier on the
+%                        TRANSLATIONAL lift, a tuning / non-uniform-morphology
+%                        knob. Either a scalar (broadcast to all strips) or a
+%                        1xM vector (one value per strip, ordered as the strips
+%                        are built). Default: 1 for every strip (no change).
+%                        Does NOT scale rotational lift, the spanwise force, or
+%                        the spin damping.
+%     .dragMult        - (OPTIONAL) static per-strip multiplier on the drag,
+%                        same scalar-or-1xM form and default as .liftMult.
 %
 % OUTPUT
 %   seedParamsFull : copy of seedParamsIn with the following fields added:
@@ -38,6 +47,10 @@ function seedParamsFull = setupSeedShapeAndMass(seedParamsIn)
 %                        the centre of pressure.
 %     .strips.zgc_body - 1xM vector of strip GEOMETRIC-CENTRE z positions
 %                        in body frame (spanwise), = the strip centroid z.
+%     .strips.liftMult - 1xM vector of per-strip translational-lift multipliers
+%                        (resolved from the optional input above; all ones by
+%                        default). Applied in computeStripForces.
+%     .strips.dragMult - 1xM vector of per-strip drag multipliers (default ones).
 %     .massParams.tSamples - copy of tSamples (s).
 %     .massParams.com_t    - 3xN array, CoM position in body-DATUM coords at
 %                            each time sample (m).
@@ -295,7 +308,17 @@ end
 
 
 % =========================================================================
-% 6. PACK ALL OUTPUTS
+% 6. PER-STRIP LIFT / DRAG MULTIPLIERS
+%    Static tuning / non-uniform-morphology knobs on the translational lift and
+%    drag. Resolve the optional scalar-or-vector inputs into 1xM row vectors
+%    (one value per strip); default to all ones (no change) when absent.
+% =========================================================================
+strip_liftMult = resolveStripMultiplier(bsp, 'liftMult', numPlates);
+strip_dragMult = resolveStripMultiplier(bsp, 'dragMult', numPlates);
+
+
+% =========================================================================
+% 7. PACK ALL OUTPUTS
 % =========================================================================
 
 seedParamsFull = seedParamsIn;   % carry through all original inputs
@@ -306,6 +329,8 @@ seedParamsFull.strips.chord    = strip_chord;    % 1xM, chord lengths (m)
 seedParamsFull.strips.dz       = strip_dz;       % 1xM, spanwise widths (m)
 seedParamsFull.strips.xgc_body = strip_xgc;      % 1xM, geometric-centre chordwise body x (m)
 seedParamsFull.strips.zgc_body = strip_zgc;      % 1xM, geometric-centre spanwise  body z (m)
+seedParamsFull.strips.liftMult = strip_liftMult; % 1xM, translational-lift multipliers
+seedParamsFull.strips.dragMult = strip_dragMult; % 1xM, drag multipliers
 
 % --- Time-varying mass properties (queried by getMassProperties) ---------
 seedParamsFull.massParams.tSamples   = tSamples;     % Nx1 (s)
@@ -317,6 +342,42 @@ seedParamsFull.massParams.M_total    = M_total;        % scalar (kg)
 % --- Pass through original sub-struct ------------------------------------
 seedParamsFull.baseSeedParams = bsp;
 
+end
+
+
+% =========================================================================
+% LOCAL: resolve an optional scalar-or-vector strip multiplier to 1xM
+% =========================================================================
+function multVec = resolveStripMultiplier(bsp, fieldName, numStrips)
+% RESOLVESTRIPMULTIPLIER  Turn an optional lift/drag multiplier input into a
+%   1xM row vector, one value per strip.
+%
+% INPUTS
+%   bsp       : base seed-params struct (may or may not contain fieldName).
+%   fieldName : multiplier field name, e.g. 'liftMult' or 'dragMult'.
+%   numStrips : number of strips M the output must span.
+%
+% OUTPUT
+%   multVec   : 1xM row vector. All ones if the field is absent/empty; a scalar
+%               is broadcast to every strip; a length-M vector is used as-is
+%               (reshaped to a row). Any other length is an error.
+
+    if ~isfield(bsp, fieldName) || isempty(bsp.(fieldName))
+        multVec = ones(1, numStrips);       % default: no scaling
+        return
+    end
+
+    raw = bsp.(fieldName)(:).';              % force a row vector
+
+    if isscalar(raw)
+        multVec = raw * ones(1, numStrips);  % broadcast one value to all strips
+    elseif numel(raw) == numStrips
+        multVec = raw;                       % explicit per-strip profile
+    else
+        error('setupSeedShapeAndMass:badMultiplierLength', ...
+              '%s must be a scalar or a length-%d vector (got length %d).', ...
+              fieldName, numStrips, numel(raw));
+    end
 end
 
 %function seedParamsFull = setupSeedShapeAndMass(seedParamsIn)
