@@ -339,6 +339,9 @@ seedParamsFull.massParams.I_G_t      = I_G_t;         % 3x3xN (kg·m^2)
 seedParamsFull.massParams.I_G_dot_t  = I_G_dot_t;     % 3x3xN (kg·m^2/s)
 seedParamsFull.massParams.M_total    = M_total;        % scalar (kg)
 
+% --- Physics enabler -----------------------------------------------------
+seedParamsFull.enableSpanForce = true;
+
 % --- Pass through original sub-struct ------------------------------------
 seedParamsFull.baseSeedParams = bsp;
 

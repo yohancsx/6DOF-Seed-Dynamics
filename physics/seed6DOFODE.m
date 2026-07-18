@@ -232,7 +232,7 @@ end
 % inside the strip-accumulation loop above:
 %   - spin-damping torques Tx (chordwise) and Ty (normal)
 %   - the optional spanwise-flow force (body-z only) and its torque
-tau_body    = tau_body    + [Tx; Ty; 0] + tau_span;
+tau_body    = tau_body    + [0; Ty; 0] + tau_span; %REMOVED Tx
 F_aero_body = F_aero_body + F_span_apply;
 
 % =========================================================================
