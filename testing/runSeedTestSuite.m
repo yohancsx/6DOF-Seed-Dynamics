@@ -29,7 +29,7 @@ addpath(helpersFolder);
 % MATLAB path already (add it once per session if not).
 
 % --- Output location ------------------------------------------------------
-cfg.outputRoot = fullfile(outPath, 'output_7_16_2026', 'test_suite');
+cfg.outputRoot = outPath;
 
 % --- Baseline seed geometry / material ------------------------------------
 cfg.spanLength  = 0.050;   % spanwise length, body z (m)

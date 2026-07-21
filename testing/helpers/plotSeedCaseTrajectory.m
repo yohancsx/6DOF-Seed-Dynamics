@@ -26,7 +26,8 @@ function fig = plotSeedCaseTrajectory(result, visible)
     plot3(posPlot(1,end), posPlot(2,end), posPlot(3,end), 'rx', ...
           'LineWidth', 1.5, 'MarkerSize', 9);          % end
 
-    grid on; axis equal;
+    grid on; 
+    daspect([1 1 1])
     xlabel('World X (m)'); ylabel('World Z (m)'); zlabel('World Y (m) -- up');
     title(sprintf('%s / %s', result.group, result.label), 'Interpreter', 'none');
     view(35, 20);

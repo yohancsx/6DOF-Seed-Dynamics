@@ -41,7 +41,7 @@ function fig = plotGroupOverlay(groupResults, groupName, visible)
     end
 
     grid on; 
-    %axis equal;
+    daspect([1 1 1])
     xlabel('World X (m)'); ylabel('World Z (m)'); zlabel('World Y (m) -- up');
     title([groupName ' -- trajectory sweep'], 'Interpreter', 'none');
     view(35, 20);
