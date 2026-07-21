@@ -68,7 +68,8 @@ eulerPlot = [eulerRaw(:,1),  eulerRaw(:,3),  eulerRaw(:,2)];  % Nx3: [roll, pitc
 figure('Name', opts.fig1Name);
 
 plot3(posPlot(1,:), posPlot(2,:), posPlot(3,:), 'LineWidth', opts.lineWidth);
-grid on; axis equal;
+grid on; 
+%axis equal;
 xlabel('World X (m)'); ylabel('World Z (m)'); zlabel('World Y (m) -- up');
 title('CoM trajectory (inertial frame)');
 view(opts.view);
@@ -81,6 +82,7 @@ plot(t, eulerPlot(:,1), 'LineWidth', opts.lineWidth); hold on;
 plot(t, eulerPlot(:,2), 'LineWidth', opts.lineWidth);
 plot(t, eulerPlot(:,3), 'LineWidth', opts.lineWidth);
 grid on;
+daspect([1 1 1])
 xlabel('Time (s)'); ylabel('Angle (rad)');
 legend('Roll (about X)', 'Pitch (about Z, spanwise)', 'Yaw (about Y, vertical)', ...
        'Location', 'best');

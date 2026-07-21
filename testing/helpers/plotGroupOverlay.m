@@ -40,7 +40,8 @@ function fig = plotGroupOverlay(groupResults, groupName, visible)
         labels(end+1)  = string(r.label); %#ok<AGROW>
     end
 
-    grid on; axis equal;
+    grid on; 
+    %axis equal;
     xlabel('World X (m)'); ylabel('World Z (m)'); zlabel('World Y (m) -- up');
     title([groupName ' -- trajectory sweep'], 'Interpreter', 'none');
     view(35, 20);
