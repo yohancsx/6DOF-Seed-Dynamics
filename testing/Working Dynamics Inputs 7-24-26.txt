@@ -1,0 +1,72 @@
+The base seed parameters are:
+seed nut mass = 75e-6 kg
+seed nut position = center of body
+seed body density  = 65 kg/m^3
+seed length (spanwise) = 0.050 m
+seed width (chordwise) = 0.015 m
+
+The important parameters for the physics are:
+seedParams.enableSpanForce = true; %allow spanwise forces (false by default)
+seedParams.enableSpanGeomVelocity = true; %allow geometric center COM velocity (false by default)
+seedParams.enableSpanCOPMigration = true; %allow COP to migrate across span (false by default)
+seedParams.enableSpanTorqueAttenuation = false; %allow torque attenuation (false by default)
+seedParams.enableTxDamping = true; %additional damping in the roll direction (false by default)
+
+Aero params:
+    aero.CL1  = 5.2;          % attached-flow lift slope
+    aero.CL2  = 0.95;         % separated-flow lift amplitude (sin 2alpha term)
+    aero.CD0  = 0.1;          % parasitic (zero-incidence) drag
+    aero.CD1  = 5;            % attached-flow induced drag (~sin^2 alpha)
+    aero.CD2  = 1.9;          % separated/broadside drag (also spin damping)
+    aero.CR   = 1.1;          % rotational-lift / added-circulation coefficient
+    aero.CCP0 = 0.3;          % CoP: baseline offset (attached)
+    aero.CCP1 = 3.5;          % CoP: curvature vs angle (attached)
+    aero.CCP2 = 0.2;          % CoP: high-angle offset (separated)
+    aero.as   = 14*pi/180;    % stall angle (~14 deg)
+    aero.d    =  6*pi/180;    % blend width (~6 deg)
+    aero.C_fy = 1;          % y-axis (plate-normal) spin-damping tuning factor
+                               % (no minimal_imp analogue; see
+                               % normalSpinDamping.m) (was 1)
+    aero.C_span = 0.2;        % spanwise-flow force tuning factor
+                               % (no minimal_imp analogue; see computeSpanForce.m)
+    aero.C_span_torque = 0.7; % spanwise-flow TORQUE tuning factor, independent of
+                               % C_span so force and moment can be scaled separately
+    aero.k0_spanTorque = 0.2; % reduced-frequency roll-off for span-torque
+                               % attenuation; ~preserves the torque at low spin
+                               % (tumbling) and suppresses it at high spin (autorotation)
+    aero.C_Tx = 1.0;          % Tx (chordwise-axis / roll) spin-damping tuning factor
+
+
+Seeds fall in air and we ignore buoyancy. 
+Unless otherwise specified, we run the seeds from 0 initial condition (no initial velocity, displacement, angle or angular velocity) and the simulation time is for 10s.
+The below cases by no means show exactly the conditions where these modes first appear, or are event very great examples, just basic examples of the modes available to the simulation.
+
+The inputs to get the different seed behaviors are:
+Spanwise Axis Fluttering -
+theta0 = [0 0 pi/6]; (start from slight angle)
+
+
+Gliding - 
+nutPos = [chordLength*0.5; 0; 0]; (offset nut mass along chord)
+
+
+Diving - 
+nutPos = [chordLength*1.5; 0; 0]; (offset nut mass along chord much further)
+
+
+Fluttering + Spiral - 
+nutPos  = [0; 0; 0.01*spanLength]; (offset nut mass slightly along span)
+theta0 = [0 0 pi/6]; (start from slight angle)
+
+
+Fluttering + Tight Spiral - 
+nutPos  = [0; 0; spanLength]; (offset nut mass far along span)
+theta0 = [0 0 pi/6]; (start from slight angle)
+
+
+Autorotation -
+nutPos  = [chordLength; 0; 1.2*spanLength]; (offset nut mass far along span and chord)
+
+
+'Parachute' - 
+nutPos  = [0; -chordLength; 0];

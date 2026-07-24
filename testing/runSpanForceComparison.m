@@ -153,17 +153,17 @@ fprintf('Case 4 (span ON, autorotation): %d steps, final height %.3f m\n', numel
 
 % ---- EDIT: which configuration to dissect --------------------------------
 cfgD = cfg;
-cfgD.enableSpanForce        = true;
+cfgD.enableSpanForce        = false;
 cfgD.enableSpanCOPMigration = false;
 cfgD.aero.C_span            = 0.2;
 cfgD.aero.C_span_torque     = 0.7;
 
 
-nutPosD = [0; 0; cfg.spanLength*0.05];     % tumbling-prone nut position
-q0D     = axisAngleToQuat([0; 0; 1], pi/6);
-omega0D = [0; 0; 0];
+% nutPosD = [0; 0; cfg.spanLength*0.05];     % tumbling-prone nut position
+% q0D     = axisAngleToQuat([0; 0; 1], pi/6);
+% omega0D = [0; 0; 0];
 
-nutPosD = [cfg.chordLength; 0; cfg.spanLength];     % autorotation
+nutPosD = [0.5*cfg.chordLength; 0; cfg.spanLength];     % autorotation
 q0D     = axisAngleToQuat([0; 0; 1], 0);
 omega0D = [0; 0; 0];
 % -------------------------------------------------------------------------
@@ -218,6 +218,7 @@ else
     fprintf('  -> SPAN torque dominates roll: strips under-produce it.\n');
 end
 
+%% 
 % =========================================================================
 % ANIMATION: seed body + CoM + spanwise CoP + F_span_full normal (y) direction
 % =========================================================================
@@ -243,6 +244,7 @@ FyMax   = max(abs(FspanFull(2, :)));
 arrowScale = (0.5 * cfg.spanLength) / max(FyMax, eps);
 
 frameStride = max(1, round(nD / 150));                 % ~150 frames
+frameStride = 10;
 shapeOpts = struct('showCom', false, 'showNut', false, 'showGeoCenter', false, ...
                    'showPlate', true, 'showPlateEdges', true);
 
@@ -278,5 +280,6 @@ for k = 1:frameStride:nD
     title(ax, sprintf('t = %.2f s   |   span-CoP z-offset from CoM = %+.4f m', ...
                       tD(k), rSpanCoP(3, k)), 'Interpreter', 'none');
     drawnow;
+    pause(0.1);
 end
 legend([hCom, hCop, hF], {'CoM', 'span CoP', 'F_{span} normal (y)'}, 'Location', 'best');

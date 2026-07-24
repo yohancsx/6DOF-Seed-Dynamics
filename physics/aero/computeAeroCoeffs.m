@@ -181,9 +181,9 @@ function aero = defaultAeroParams()
     aero.C_fy = 1;          % y-axis (plate-normal) spin-damping tuning factor
                                % (no minimal_imp analogue; see
                                % normalSpinDamping.m) (was 1)
-    aero.C_span = 1.0;        % spanwise-flow force tuning factor
+    aero.C_span = 0.2;        % spanwise-flow force tuning factor
                                % (no minimal_imp analogue; see computeSpanForce.m)
-    aero.C_span_torque = 1.0; % spanwise-flow TORQUE tuning factor, independent of
+    aero.C_span_torque = 0.7; % spanwise-flow TORQUE tuning factor, independent of
                                % C_span so force and moment can be scaled separately
     aero.k0_spanTorque = 0.2; % reduced-frequency roll-off for span-torque
                                % attenuation; ~preserves the torque at low spin

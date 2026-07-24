@@ -152,19 +152,19 @@ Ty = normalSpinDamping(R_normalSpin, omega_y, CD0_const, C_fy_const, rhoFluid);
 if isfield(seedParams, 'enableSpanForce')
     enableSpanForce = seedParams.enableSpanForce;
 else
-    enableSpanForce = true;
+    enableSpanForce = false;
 end
 if isfield(seedParams, 'enableSpanGeomVelocity')
     useSpanGeomVelocity = seedParams.enableSpanGeomVelocity;
 else
-    useSpanGeomVelocity = true;
+    useSpanGeomVelocity = false;
 end
 if isfield(seedParams, 'enableSpanCOPMigration')
     useSpanCOPMigration = seedParams.enableSpanCOPMigration;
 else
-    useSpanCOPMigration = true;
+    useSpanCOPMigration = false;
 end
-% enableSpanTorqueAttenuation (default TRUE): scale the span torque by a
+% enableSpanTorqueAttenuation (default false): scale the span torque by a
 % reduced-frequency factor 1/(1+(k/k0)^2), k = |omega_y|*S/(2*v_ip). Keys on the
 % NORMAL-axis spin omega_y (the autorotation spin) rather than total |omega|, so
 % it suppresses the span torque during fast autorotation -- where its spin-
@@ -174,13 +174,10 @@ end
 if isfield(seedParams, 'enableSpanTorqueAttenuation')
     useSpanTorqueAttenuation = seedParams.enableSpanTorqueAttenuation;
 else
-    useSpanTorqueAttenuation = true;
+    useSpanTorqueAttenuation = false;
 end
-% enableTxDamping (default FALSE): apply the Tx chordwise-axis (roll) spin-
-% damping term (spanSpinDamping.m), scaled by aero.C_Tx. Off by default because
-% the strips already capture some roll damping via their spanwise-distributed
-% normal loading; enable at partial C_Tx to raise the parametric-instability
-% threshold on the roll axis without heavily double-counting.
+% enableTxDamping (default TRUE): apply the Tx chordwise-axis (roll) spin-
+% damping term (spanSpinDamping.m), scaled by aero.C_Tx. On by default.
 if isfield(seedParams, 'enableTxDamping')
     useTxDamping = seedParams.enableTxDamping;
 else
