@@ -46,9 +46,57 @@ velocity is sampled and where the aerodynamic force magnitude/direction are set;
 moment arm. Per strip we use the in-plane relative velocity at the geometric center
 $\mathbf{v}_{ip}=(v_x,v_y)$ with speed $|v_{ip}|$, the local angle of attack
 $\alpha=\operatorname{atan2}(v_y,v_x)$, and the spanwise spin $\omega_z$. Coefficients
-$C_T,C_D,l_{cp},C_R,C_{D2},C_{D0}$ come from \texttt{computeAeroCoeffs}, together with
-two dimensionless tuning knobs $C_{fy},C_{\text{span}}$ (default $1$) that scale the
-two heuristic terms below.
+$C_T,C_D,l_{cp},C_R,C_{D2},C_{D0}$ come from \texttt{computeAeroCoeffs}. A set of
+dimensionless tuning knobs (default $1$, no \texttt{minimal\_imp} analogue) scale the
+optional / heuristic terms: $C_{fy}$ ($T_y$ damping), $C_{Tx}$ ($T_x$ damping),
+$C_{\text{span}}$ (span force), $C_{\text{span,}\tau}$ (span torque), and $k_0$
+(span-torque roll-off).
+
+\section*{Aerodynamic coefficients vs.\ angle of attack}
+These are a direct port of the 2D Andersen--Pesavento--Wang coefficient laws
+(\texttt{computeAeroCoeffs}); each strip evaluates them at its own $\alpha$. Two
+$\tanh$ weights blend an \emph{attached} model (small $|\alpha|$) into a
+\emph{separated} model (large $|\alpha|$) around stall angle $a_s$ with width $d$:
+\[
+  f_1 = \tfrac12\!\left[1-\tanh\!\tfrac{|\alpha|-a_s}{d}\right]\ (\text{attached near }\alpha{=}0),
+  \qquad
+  f_2 = \tfrac12\!\left[1-\tanh\!\tfrac{\pi-|\alpha|-a_s}{d}\right]\ (\text{mirror near }\alpha{=}\pm\pi).
+\]
+Three branches in $\alpha$ then select the coefficients: $m_1:|\alpha|\le\tfrac\pi2$
+(attached / forward); $m_2:\alpha>\tfrac\pi2$ (reversed, front); $m_3:\alpha<-\tfrac\pi2$
+(reversed, back). Drag and CoP are identical on $m_2,m_3$; only the lift sign differs.
+
+\paragraph{Lift / normal-force $C_T$.} Attached $\propto\sin\alpha$, separated $\propto\sin2\alpha$:
+\begin{align*}
+  m_1:\ & C_T = C_{L1}f_1\sin\alpha + (1{-}f_1)C_{L2}\sin2\alpha,\\
+  m_2:\ & C_T = -\big[C_{L1}f_2(\pi{-}|\alpha|) + (1{-}f_2)C_{L2}\sin2(\pi{-}|\alpha|)\big],\\
+  m_3:\ & C_T = +\big[C_{L1}f_2(\pi{-}|\alpha|) + (1{-}f_2)C_{L2}\sin2(\pi{-}|\alpha|)\big].
+\end{align*}
+
+\paragraph{Drag $C_D$.} Attached $C_{D0}$ plus induced $\propto\sin^2\alpha$; separated $\propto\sin^2\alpha$:
+\begin{align*}
+  m_1:\ & C_D = f_1\big(C_{D0}+C_{D1}\sin^2\alpha\big) + (1{-}f_1)C_{D2}\sin^2\alpha,\\
+  m_{2,3}:\ & C_D = f_2\big(C_{D0}+C_{D1}(\pi{-}|\alpha|)^2\big) + (1{-}f_2)C_{D2}\sin^2(\pi{-}\alpha).
+\end{align*}
+
+\paragraph{Centre of pressure $l_{cp}$} (fraction of chord from the geometric center;
+attached branch quadratic in angle, separated branch a linear ramp):
+\begin{align*}
+  m_1:\ & l_{cp} = f_1\big(C_{CP0}-C_{CP1}\alpha^2\big) + (1{-}f_1)\big(C_{CP2}-\tfrac{C_{CP2}}{\pi/2}|\alpha|\big),\\
+  m_{2,3}:\ & l_{cp} = -\Big[f_2\big(C_{CP0}-C_{CP1}(\pi{-}|\alpha|)^2\big) + (1{-}f_2)\big(C_{CP2}-\tfrac{C_{CP2}}{\pi/2}(\pi{-}|\alpha|)\big)\Big].
+\end{align*}
+
+\paragraph{Constants (alpha-independent).} $C_R$ (rotational lift), $C_{D,\text{rot}}=C_{D2}$
+(spin damping), and $C_{D0}$ (also used by the $T_y$ heuristic). Default fit values
+(\texttt{minimal\_imp}, CGS-model, dimensionless except $a_s,d$ in rad):
+$C_{L1}{=}5.2$, $C_{L2}{=}0.95$, $C_{D0}{=}0.1$, $C_{D1}{=}5$, $C_{D2}{=}1.9$,
+$C_R{=}1.1$, $C_{CP0}{=}0.3$, $C_{CP1}{=}3.5$, $C_{CP2}{=}0.2$, $a_s{=}14^\circ$, $d{=}6^\circ$.
+
+\paragraph{Preserved 2D quirks} (kept identical so the 3D model reduces exactly to 2D):
+$C_{T2},C_{T3}$ use $(\pi{-}|\alpha|)$ where $C_{T1}$ uses $\sin\alpha$ (a small-angle
+approximation of $\sin(\pi{-}|\alpha|)$ near $\alpha{=}\pm\pi$); $C_{D2}$ mixes
+$(\pi{-}|\alpha|)^2$ with $\sin(\pi{-}\alpha)$. Do not ``correct'' these without a
+deliberate decision.
 
 \section*{Per-strip forces}
 Each strip of chord $c$ and width $dz$ contributes the following, evaluated from the
@@ -160,12 +208,20 @@ with \emph{spanwise} position, so its damping integral runs over the span---the 
 analogue of $T_r$'s chordwise integral, evaluated once over $S$. Rotation about the
 normal axis has no equivalent (the flow is edge-on both ways), hence the heuristic form.
 
-\subsection*{Spanwise-flow force \opt{}}
-When enabled (\texttt{seedParams.enableSpanForce}, default off), a single whole-seed
-force models flow in the span--normal ($z$--$y$) plane, exactly the strip lift/drag law
-with the \emph{span} $S$ as the ``chord'' and the mean chord $\bar c$ as the width (so
-$S\bar c$ = wing area). The bulk velocity is transported to the seed geometric center
-$\mathbf g$,
+\noindent\textbf{$T_x$ is gated off by default} (\texttt{enableTxDamping}, scaled by
+$C_{Tx}$). The strips already capture roll damping through their spanwise-distributed
+normal loading---strips offset in span see $v_y\!=\!-\omega_x z$, go broadside, and their
+summed moment reproduces essentially the same span integral---so applying $T_x$ on top
+roughly \emph{double-counts} it. $T_y$ has no such strip analogue and is always applied.
+
+\subsection*{Spanwise-flow force \opt{}\,\heur{}}
+\emph{Optional, experimental extension; the validated baseline model runs with the
+spanwise force off} (it is toggled by \texttt{enableSpanForce}, with the further switches
+\texttt{enableSpanGeomVelocity}, \texttt{enableSpanCOPMigration},
+\texttt{enableSpanTorqueAttenuation}). When enabled, a single whole-seed force models flow
+in the span--normal ($z$--$y$) plane, exactly the strip lift/drag law with the \emph{span}
+$S$ as the ``chord'' and the mean chord $\bar c$ as the width (so $S\bar c$ = wing area).
+The bulk velocity is transported to the seed geometric center $\mathbf g$,
 \[
   \mathbf v_{gc} = R^{\top}\mathbf v + \boldsymbol\omega\times(\mathbf g-\mathbf c),
   \qquad
@@ -203,8 +259,24 @@ crossing the span-CoP arm with the full force recovers exactly that missing roll
 $\tau_x=-r_{cp,z}\,F_{\text{span},y}$. Note that with only the $z$-force this term would
 be inert---the span-CoP migrates along $z$, \emph{parallel} to that force, so its arm
 would contribute nothing and $\boldsymbol\tau_{\text{span}}$ would collapse to a pure yaw
-from any chordwise CoM offset (equivalent to applying at the geometric center; a
-commented-out one-line switch selects that alternative in the code).
+from any chordwise CoM offset. The application point is switchable
+(\texttt{enableSpanCOPMigration}: migrating span CoP, or the fixed geometric center), and
+the torque carries an \emph{independent} scale $C_{\text{span,}\tau}$ so force and moment
+tune separately: $\boldsymbol\tau_{\text{span}}\!\to\!C_{\text{span,}\tau}\,a(k)\,\boldsymbol\tau_{\text{span}}$.
+
+\paragraph{Reduced-frequency attenuation of the span torque.} The span torque is a lumped
+\emph{quasi-steady} CoP moment, valid only when the span-plane flow direction changes
+slowly relative to the convective time $S/|v|$. In autorotation the descent velocity
+resolved into the spinning body frame makes $\beta$---and hence this torque---oscillate at
+the normal-axis spin $\omega_y$, parametrically destabilising roll. It is therefore scaled
+by a reduced-frequency factor
+\[
+  a(k)=\frac{1}{1+(k/k_0)^2},\qquad k=\frac{|\omega_y|\,S}{2\,|v|},
+\]
+keyed on $\omega_y$ (the autorotation spin) rather than $|\boldsymbol\omega|$: this leaves
+the tumbling mode (an $\omega_z$ mode, small $\omega_y$) unattenuated while suppressing the
+oscillating torque during fast autorotation. Toggled by
+\texttt{enableSpanTorqueAttenuation}; $k_0\approx0.2$ preserves tumbling.
 
 \paragraph{Why once, not per strip.} $T_r$ is summed per strip because its chordwise
 integral is identical at every span station, so $dz$-weighting reconstructs the full

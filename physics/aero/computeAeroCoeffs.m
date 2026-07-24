@@ -47,12 +47,34 @@ function coeffs = computeAeroCoeffs(alpha, aero)
 %   coeffs.C_span    : tuning factor for the whole-seed spanwise-flow force
 %                      (computeSpanForce.m); no minimal_imp analogue.
 %                      CONSTANT (alpha-independent).
+%   coeffs.C_span_torque : tuning factor for the whole-seed spanwise-flow
+%                      TORQUE only, applied independently of C_span so the span
+%                      force and its moment can be scaled separately.
+%                      CONSTANT (alpha-independent).
+%   coeffs.k0_spanTorque : reduced-frequency roll-off for the span-torque
+%                      quasi-steady attenuation (seed6DOFODE section 3b). The
+%                      span torque is scaled by 1/(1+(k/k0)^2) with the reduced
+%                      frequency k = |omega_y|*S/(2*v_ip); smaller k0 attenuates
+%                      sooner. CONSTANT (alpha-independent).
+%   coeffs.C_Tx      : tuning factor for the Tx chordwise-axis (roll) spin
+%                      damping (spanSpinDamping.m), applied when that term is
+%                      enabled. CONSTANT (alpha-independent).
 
 % -------------------------------------------------------------------------
 % 0. PARAMETERS
 % -------------------------------------------------------------------------
+% A PARTIAL struct is allowed: any field not supplied falls back to the default,
+% so a caller can override just one constant, e.g. struct('C_span', 0.25).
+defaults = defaultAeroParams();
 if nargin < 2 || isempty(aero)
-    aero = defaultAeroParams();
+    aero = defaults;
+else
+    fillFields = fieldnames(defaults);
+    for iField = 1:numel(fillFields)
+        if ~isfield(aero, fillFields{iField})
+            aero.(fillFields{iField}) = defaults.(fillFields{iField});
+        end
+    end
 end
 
 CL1 = aero.CL1;  CL2 = aero.CL2;                       % lift constants
@@ -62,6 +84,9 @@ CCP0 = aero.CCP0; CCP1 = aero.CCP1; CCP2 = aero.CCP2;  % CoP constants
 as = aero.as;    d = aero.d;                           % stall angle, blend width
 C_fy = aero.C_fy;                                      % y-axis spin-damping tuning factor
 C_span = aero.C_span;                                  % spanwise-flow force tuning factor
+C_span_torque = aero.C_span_torque;                    % spanwise-flow TORQUE tuning factor
+k0_spanTorque = aero.k0_spanTorque;                    % span-torque attenuation roll-off
+C_Tx = aero.C_Tx;                                      % Tx (roll) spin-damping tuning factor
 
 % -------------------------------------------------------------------------
 % 1. SMOOTH ATTACHED<->SEPARATED BLEND WEIGHTS  (2D lines 122-123)
@@ -130,6 +155,9 @@ coeffs.CD_rot    = CD2;    % rotational damping coefficient (constant, = CD2)
 coeffs.CD0       = CD0;    % zero-incidence drag coefficient (constant)
 coeffs.C_fy      = C_fy;   % y-axis spin-damping tuning factor (constant)
 coeffs.C_span    = C_span; % spanwise-flow force tuning factor (constant)
+coeffs.C_span_torque = C_span_torque;  % spanwise-flow torque tuning factor (constant)
+coeffs.k0_spanTorque = k0_spanTorque;  % span-torque attenuation roll-off (constant)
+coeffs.C_Tx      = C_Tx;   % Tx roll spin-damping tuning factor (constant)
 
 end   % computeAeroCoeffs
 
@@ -150,8 +178,15 @@ function aero = defaultAeroParams()
     aero.CCP2 = 0.2;          % CoP: high-angle offset (separated)
     aero.as   = 14*pi/180;    % stall angle (~14 deg)
     aero.d    =  6*pi/180;    % blend width (~6 deg)
-    aero.C_fy = 1.0;          % y-axis (plate-normal) spin-damping tuning factor
-                               % (no minimal_imp analogue; see normalSpinDamping.m)
+    aero.C_fy = 1;          % y-axis (plate-normal) spin-damping tuning factor
+                               % (no minimal_imp analogue; see
+                               % normalSpinDamping.m) (was 1)
     aero.C_span = 1.0;        % spanwise-flow force tuning factor
                                % (no minimal_imp analogue; see computeSpanForce.m)
+    aero.C_span_torque = 1.0; % spanwise-flow TORQUE tuning factor, independent of
+                               % C_span so force and moment can be scaled separately
+    aero.k0_spanTorque = 0.2; % reduced-frequency roll-off for span-torque
+                               % attenuation; ~preserves the torque at low spin
+                               % (tumbling) and suppresses it at high spin (autorotation)
+    aero.C_Tx = 1.0;          % Tx (chordwise-axis / roll) spin-damping tuning factor
 end

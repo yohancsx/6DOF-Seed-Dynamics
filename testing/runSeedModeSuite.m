@@ -26,7 +26,10 @@ cfg.bulkDensity = 65;    cfg.numStrips   = 10;      cfg.tSamples  = 0;
 cfg.nutMass     = 75e-6;    % nut mass (kg); its POSITION is what each section sweeps
 
 % --- Environment ----------------------------------------------------------
-cfg.rhoFluid = 1.225;   cfg.g = 9.81;   cfg.enableSpanForce = false;
+cfg.rhoFluid = 1.225;   cfg.g = 9.81;
+cfg.enableSpanForce        = true;   % whole-seed spanwise force ON (default)
+cfg.enableSpanGeomVelocity = true;   % include omega x r in the span-force velocity
+                                      % set false to drive it from CoM translation only
 
 % --- Simulation (modes need time to develop) ------------------------------
 cfg.tspan = [0 8];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;
@@ -62,24 +65,30 @@ res_glideDive = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
 
 %% 2. Spiral tumbling  (nut along the SPAN, small-to-intermediate)
 % A modest spanwise offset should tumble about the spanwise axis while circling
-% the vertical axis -- a wide helix.
+% the vertical axis -- a wide helix. Released with an initial pi/6 tilt about the
+% body z (spanwise) axis so the tumble has something to start from, rather than
+% sitting in the symmetric broadside equilibrium.
 sweep = struct();
 sweep.name         = 'spiral_tumbling';
 sweep.axis         = 'span';
 sweep.fracRange    = [0.2 1.0];
 sweep.nSweep       = 6;
 sweep.expectedMode = {'spiralTumbling', 'tumbling'};
+sweep.q0           = axisAngleToQuat([0; 0; 1], pi/6);   % pi/6 tilt about body z
 res_spiralTumbling = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
 
 %% 3. Tight spiral  (nut along the SPAN, further out)
 % Larger spanwise offset should tighten the helix; note it may transition
-% toward autorotation as the seed becomes strongly tip-heavy.
+% toward autorotation as the seed becomes strongly tip-heavy. Same pi/6 initial
+% tilt about the body z (spanwise) axis as Section 2, so the two sweeps differ
+% only in nut offset.
 sweep = struct();
 sweep.name         = 'tight_spiral';
 sweep.axis         = 'span';
 sweep.fracRange    = [1.0 2.0];
 sweep.nSweep       = 6;
 sweep.expectedMode = {'tightSpiral', 'autorotation'};
+sweep.q0           = axisAngleToQuat([0; 0; 1], pi/6);   % pi/6 tilt about body z
 res_tightSpiral = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
 
 %% 4. Autorotation  (nut along the DIAGONAL, off-body; small spin nudge)
@@ -104,3 +113,27 @@ sweep.fracRange    = [1.0 5.0];   % nut 1..5 half-chords below the plate
 sweep.nSweep       = 5;
 sweep.expectedMode = {'parachuting'};
 res_parachuting = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
+
+%% 6. C_span sweep  (DIAGNOSTIC: how much is the span force suppressing autorotation?)
+% Holds the seed FIXED in a strongly tip-heavy, autorotation-prone configuration
+% and sweeps only the span-force tuning coefficient. Because the span force
+% scales linearly with C_span, C_span = 0 is exactly equivalent to running with
+% enableSpanForce = false -- so the low end should reproduce the autorotation you
+% already see with span forces off, and the sweep shows where (and how sharply)
+% increasing span force destroys it.
+%
+% Read the table for the C_span value at which the mode stops being
+% autorotation: that is the usable ceiling for keeping span forces on.
+% If autorotation NEVER appears (even at C_span = 0), the cause is elsewhere --
+% see the lift-deficit / LEV note below.
+sweep = struct();
+sweep.name         = 'C_span_sweep';
+sweep.axis         = 'C_span';
+sweep.fixedAxis    = 'diag';    % nut held on the diagonal (tip-heavy)...
+sweep.fixedNutFrac = 2.0;       % ...well off the planform -> autorotation-prone
+sweep.fracRange    = [0.0 1.0]; % C_span values (0 = span force off)
+sweep.nSweep       = 6;
+sweep.expectedMode = {'autorotation'};
+sweep.omega0       = [0; 2; 0];                          % spin nudge (as Section 4)
+sweep.q0           = axisAngleToQuat([0; 0; 1], pi/6);   % pi/6 tilt about body z
+res_CspanSweep = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);

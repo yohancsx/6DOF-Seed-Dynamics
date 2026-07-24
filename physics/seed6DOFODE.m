@@ -112,6 +112,7 @@ constCoeffs  = computeAeroCoeffs(0, aeroParams);
 CD_rot_const = constCoeffs.CD_rot;
 CD0_const    = constCoeffs.CD0;
 C_fy_const   = constCoeffs.C_fy;
+C_Tx_const   = constCoeffs.C_Tx;
 
 Tx = spanSpinDamping(totalSpan, chordMean, omega_x, comSpanOffset, CD_rot_const, rhoFluid);
 
@@ -123,25 +124,91 @@ Ty = normalSpinDamping(R_normalSpin, omega_y, CD0_const, C_fy_const, rhoFluid);
 % 3b. WHOLE-SEED SPANWISE-FLOW FORCE  (optional; fills the unmodeled body-z force)
 % =========================================================================
 % The chordwise strips produce zero body-z (spanwise) force, so a sideways-
-% sliding seed feels no aerodynamic resistance. When enabled, computeSpanForce
-% supplies a single whole-seed force from flow in the span-normal (z-y) plane.
-% Default OFF, so existing (validated, in-plane) behaviour is unchanged unless
-% explicitly requested via seedParams.enableSpanForce.
-enableSpanForce = isfield(seedParams, 'enableSpanForce') && seedParams.enableSpanForce;
+% sliding seed feels no aerodynamic resistance. computeSpanForce supplies a
+% single whole-seed force from flow in the span-normal (z-y) plane.
+%
+% Three independent switches (all DEFAULT TRUE when the field is absent):
+%   .enableSpanForce        - apply the span force at all
+%   .enableSpanGeomVelocity - include the rotational omega x r transport when
+%                             sampling the velocity at the geometric centre.
+%     Set FALSE to drive the span force from the CoM translational velocity
+%     only. Diagnostic value: the omega x r term feeds a SPANWISE velocity only
+%     when the geometric-centre-to-CoM arm has a CHORDWISE (or out-of-plane)
+%     component, since (omega x r)_z = omega_x*r_y - omega_y*r_x. For a purely
+%     spanwise CoM offset it contributes nothing to this force, so toggling
+%     this isolates how much the rotational sweep (vs. the descent velocity
+%     resolved in the spinning body frame) is driving the span force.
+%   .enableSpanCOPMigration - place the span force at the MIGRATING span centre
+%     of pressure (true) or at the fixed geometric centre (false). The migrating
+%     CoP arm scales with the TOTAL SPAN and its l_cp_frac(beta) oscillates at
+%     the spin frequency during autorotation, which can parametrically
+%     destabilise the roll axis; setting this false removes that oscillating
+%     arm while leaving the span FORCE untouched.
+%
+% The span torque is additionally scaled by the aero constant C_span_torque
+% (default 1), so the force and torque contributions can be tuned INDEPENDENTLY
+% -- useful because tumbling needs the force while autorotation is sensitive to
+% the torque.
+if isfield(seedParams, 'enableSpanForce')
+    enableSpanForce = seedParams.enableSpanForce;
+else
+    enableSpanForce = true;
+end
+if isfield(seedParams, 'enableSpanGeomVelocity')
+    useSpanGeomVelocity = seedParams.enableSpanGeomVelocity;
+else
+    useSpanGeomVelocity = true;
+end
+if isfield(seedParams, 'enableSpanCOPMigration')
+    useSpanCOPMigration = seedParams.enableSpanCOPMigration;
+else
+    useSpanCOPMigration = true;
+end
+% enableSpanTorqueAttenuation (default TRUE): scale the span torque by a
+% reduced-frequency factor 1/(1+(k/k0)^2), k = |omega_y|*S/(2*v_ip). Keys on the
+% NORMAL-axis spin omega_y (the autorotation spin) rather than total |omega|, so
+% it suppresses the span torque during fast autorotation -- where its spin-
+% frequency oscillation parametrically destabilises the roll axis -- while
+% leaving it intact during tumbling (an omega_z mode). Set FALSE for the raw
+% (unattenuated) span torque.
+if isfield(seedParams, 'enableSpanTorqueAttenuation')
+    useSpanTorqueAttenuation = seedParams.enableSpanTorqueAttenuation;
+else
+    useSpanTorqueAttenuation = true;
+end
+% enableTxDamping (default FALSE): apply the Tx chordwise-axis (roll) spin-
+% damping term (spanSpinDamping.m), scaled by aero.C_Tx. Off by default because
+% the strips already capture some roll damping via their spanwise-distributed
+% normal loading; enable at partial C_Tx to raise the parametric-instability
+% threshold on the roll axis without heavily double-counting.
+if isfield(seedParams, 'enableTxDamping')
+    useTxDamping = seedParams.enableTxDamping;
+else
+    useTxDamping = false;
+end
 
 % Contributions default to zero so the post-loop accumulation is unconditional.
-F_span_apply = [0; 0; 0];   % force  contribution (added after the strip loop)
-tau_span     = [0; 0; 0];   % torque contribution (added after the strip loop)
-F_span_full  = [0; 0; 0];   % full span force, for intermediates (zero when disabled)
+F_span_apply    = [0; 0; 0];   % force  contribution (added after the strip loop)
+tau_span        = [0; 0; 0];   % torque contribution (added after the strip loop)
+F_span_full     = [0; 0; 0];   % full span force, for intermediates (zero when disabled)
+spanTorqueAtten = 1;           % span-torque reduced-frequency attenuation factor
+r_spanCoP_body  = [0; 0; 0];   % span-CoP application point relative to CoM, body frame
 
 if enableSpanForce
     % Whole-seed geometric centre in body coords (area-weighted; body y = 0).
     seedGeoCenter = [xGeoCenterChord; 0; zGeoCenterSpan];
 
-    % Bulk velocity transported to the geometric centre (transport theorem):
+    % Bulk velocity at the geometric centre. With the transport term (default):
     %   v_gc^body = R' * v_com^inertial + omega^body x (geoCentre - CoM)
+    % Without it, only the CoM translational velocity drives the span force, so
+    % the seed's own rotational sweep cannot feed back into this translational
+    % drag (see the toggle notes above).
     v_com_body = R.' * v;
-    v_gc_body  = v_com_body + cross(omega, seedGeoCenter - mp.c);
+    if useSpanGeomVelocity
+        v_gc_body = v_com_body + cross(omega, seedGeoCenter - mp.c);
+    else
+        v_gc_body = v_com_body;      % translation only -- omit the rotational sweep
+    end
     vSpan_gc   = v_gc_body(3);   % spanwise    (body z) component
     vNormal_gc = v_gc_body(2);   % plate-normal (body y) component
 
@@ -171,10 +238,37 @@ if enableSpanForce
     % migrates along body z, parallel to that force -- would add no torque, and
     % this would collapse to a pure yaw from any chordwise CoM offset, i.e. the
     % same as applying at the geometric centre.)
-    zSpanCoP  = computeStripCoP(l_cp_frac_span, totalSpan, zGeoCenterSpan);  % migrating span CoP (body z)
-    r_spanCoP = [xGeoCenterChord; 0; zSpanCoP] - mp.c;   % span-CoP arm, relative to CoM
-    % r_spanCoP = seedGeoCenter - mp.c;   % <-- ALTERNATIVE: apply the torque at the geometric centre instead
-    tau_span  = cross(r_spanCoP, F_span_full);
+    %
+    % Application point is switchable: the migrating span CoP (default) or the
+    % fixed geometric centre. See the enableSpanCOPMigration notes above.
+    if useSpanCOPMigration
+        zSpanCoP  = computeStripCoP(l_cp_frac_span, totalSpan, zGeoCenterSpan);  % migrating span CoP (body z)
+        r_spanArm = [xGeoCenterChord; 0; zSpanCoP] - mp.c;   % span-CoP arm, relative to CoM
+    else
+        r_spanArm = seedGeoCenter - mp.c;   % fixed geometric-centre arm (no CoP migration)
+    end
+    r_spanCoP_body = r_spanArm;   % expose the span-CoP application point (rel. to CoM)
+
+    % Reduced-frequency attenuation (quasi-steady validity). The span torque is a
+    % lumped quasi-steady CoP moment, valid only when the span-plane flow direction
+    % changes slowly relative to the convective time S/v_ip. During autorotation the
+    % descent velocity resolved into the spinning body frame makes beta -- and this
+    % torque -- oscillate at the NORMAL-axis spin omega_y, parametrically
+    % destabilising roll; the reduced frequency k = |omega_y|*S/(2*v_ip) captures
+    % that. Keying on omega_y (not total |omega|) leaves the tumbling mode (an
+    % omega_z mode, small omega_y) unattenuated.
+    if useSpanTorqueAttenuation
+        v_ip_span       = hypot(vSpan_gc, vNormal_gc);
+        k_reduced       = abs(omega_y) * totalSpan / (2 * max(v_ip_span, eps));
+        spanTorqueAtten = 1 / (1 + (k_reduced / spanCoeffs.k0_spanTorque)^2);
+    else
+        spanTorqueAtten = 1;   % raw, unattenuated span torque
+    end
+
+    % C_span_torque scales the torque only, leaving F_span_apply untouched, so
+    % the force and torque strengths are independently tunable.
+    tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_full);
+    %tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_apply);
 end
 
 for i = 1 : numStrips
@@ -230,9 +324,15 @@ end
 % Add the whole-seed contributions (sections 3a, 3b) -- single contributions
 % for the whole seed, not per-strip ones, so they are added here rather than
 % inside the strip-accumulation loop above:
-%   - spin-damping torques Tx (chordwise) and Ty (normal)
+%   - spin-damping torques Tx (chordwise/roll, gated + scaled) and Ty (normal)
 %   - the optional spanwise-flow force (body-z only) and its torque
-tau_body    = tau_body    + [0; Ty; 0] + tau_span; %ZEROED tx
+% Tx is off by default (see enableTxDamping); when on it is scaled by C_Tx.
+if useTxDamping
+    Tx_applied = C_Tx_const * Tx;
+else
+    Tx_applied = 0;
+end
+tau_body    = tau_body    + [Tx_applied; Ty; 0] + tau_span;
 F_aero_body = F_aero_body + F_span_apply;
 
 % =========================================================================
@@ -280,10 +380,13 @@ if nargout > 1
     intermediates.F_aero_body     = F_aero_body;      % 3x1 total aero force, body
     intermediates.F_aero_inertial = F_aero_inertial;  % 3x1 total aero force, inertial
     intermediates.F_total_inertial= F_total_inertial; % 3x1 aero + gravity, inertial
-    intermediates.Tx_spanSpin     = Tx;               % whole-seed chordwise spin-damping torque (N*m)
+    intermediates.Tx_spanSpin     = Tx;               % computed chordwise (roll) spin-damping torque (N*m)
+    intermediates.Tx_applied      = Tx_applied;       % Tx actually added (0 if enableTxDamping false)
     intermediates.Ty_normalSpin   = Ty;               % whole-seed normal-axis spin-damping torque (N*m)
+    intermediates.spanTorqueAtten = spanTorqueAtten;  % span-torque reduced-frequency attenuation factor
     intermediates.F_span_full     = F_span_full;      % 3x1 full span-flow force, body (y-component discarded from sum)
     intermediates.F_span_apply    = F_span_apply;     % 3x1 span-flow force actually added (body-z only)
+    intermediates.r_spanCoP_body  = r_spanCoP_body;   % 3x1 span-CoP application point relative to CoM, body frame
     intermediates.tau_span        = tau_span;         % 3x1 span-flow torque, body (uses full force + migrating span CoP)
     intermediates.tau_body        = tau_body;         % 3x1 total torque, body
     intermediates.a_inertial      = a_inertial;       % 3x1 linear acceleration

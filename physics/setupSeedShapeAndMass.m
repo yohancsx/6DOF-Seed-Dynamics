@@ -339,8 +339,19 @@ seedParamsFull.massParams.I_G_t      = I_G_t;         % 3x3xN (kg·m^2)
 seedParamsFull.massParams.I_G_dot_t  = I_G_dot_t;     % 3x3xN (kg·m^2/s)
 seedParamsFull.massParams.M_total    = M_total;        % scalar (kg)
 
-% --- Physics enabler -----------------------------------------------------
-seedParamsFull.enableSpanForce = true;
+% --- Physics enablers ----------------------------------------------------
+% Both default true here (the physically fuller model); override on the
+% returned struct to disable. enableSpanGeomVelocity controls whether the span
+% force samples velocity with the rotational omega x r transport included, or
+% from the CoM translational velocity only -- see seed6DOFODE section 3b.
+seedParamsFull.enableSpanForce            = true;
+seedParamsFull.enableSpanGeomVelocity     = true;
+seedParamsFull.enableSpanCOPMigration     = true;   % false -> span torque at the
+                                                    % fixed geometric centre instead
+seedParamsFull.enableSpanTorqueAttenuation = true;  % reduced-frequency roll-off of
+                                                    % the span torque (protects autorotation)
+seedParamsFull.enableTxDamping            = false;  % Tx (roll) spin damping OFF by
+                                                    % default (strips capture some already)
 
 % --- Pass through original sub-struct ------------------------------------
 seedParamsFull.baseSeedParams = bsp;

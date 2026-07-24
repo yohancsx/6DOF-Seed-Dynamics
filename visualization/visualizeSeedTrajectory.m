@@ -67,12 +67,17 @@ eulerPlot = [eulerRaw(:,1),  eulerRaw(:,3),  eulerRaw(:,2)];  % Nx3: [roll, pitc
 % -------------------------------------------------------------------------
 figure('Name', opts.fig1Name);
 
-plot3(posPlot(1,:), posPlot(2,:), posPlot(3,:), 'LineWidth', opts.lineWidth);
+%plot3(posPlot(1,:), posPlot(2,:), posPlot(3,:), 'LineWidth', opts.lineWidth);
+scatter3(posPlot(1,:),posPlot(2,:),posPlot(3,:),5,t,"filled");
 grid on; 
 daspect([1 1 1])
 xlabel('World X (m)'); ylabel('World Z (m)'); zlabel('World Y (m) -- up');
 title('CoM trajectory (inertial frame)');
 view(opts.view);
+c = colorbar;
+c.Label.String = 'Time (s)';
+c.Label.FontSize = 14;
+colormap('jet')
 
 % -------------------------------------------------------------------------
 % 4. Second Figure: Euler angles vs time
