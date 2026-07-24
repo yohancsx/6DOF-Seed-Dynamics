@@ -44,7 +44,7 @@ cfg.enableSpanTorqueAttenuation = true;
 
 % --- CoM travel limits (fractions of the half-dimension) ------------------
 fChordMax  = 1.0;    % chordwise sweep amplitude (scenario 2), x half-chord
-fSpanMax   = 1.0;    % spanwise  sweep amplitude (scenario 1), x half-span
+fSpanMax   = 0.01;    % spanwise  sweep amplitude (scenario 1), x half-span
 % Scenario 3 waypoints:
 fChordGlide = 0.8;   % initial chordwise offset -> glide
 fSpanSpin   = 1.2;   % spanwise offset -> spin up

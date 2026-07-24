@@ -341,6 +341,42 @@ both models: explicit damping about $x$ and $y$ ($T_x,T_y$) and an optional span
 force with an offset roll torque, all described above. $T_x$ is traceable to $T_r$; $T_y$
 and the span force are heuristics with tuning knobs.
 
+\section*{Reproducing the flight modes}
+The 2D-reducible baseline (spanwise force off) captures gliding, diving, and fluttering
+directly. Reproducing the full biological set of 3D modes---including the large tumbling
+spirals---uses the whole-seed spanwise extensions with the empirically-tuned configuration
+below (recorded in \texttt{testing/Working\_Dynamics\_Inputs}). All runs use the base seed
+(nut mass $75\,\mu$g at the body center, body density $65\,\mathrm{kg/m^3}$, span $S=50$\,mm,
+chord $c=15$\,mm) in air ($\rho=1.225$, buoyancy ignored), released from rest for $10$\,s
+unless an initial attitude is given.
+
+\paragraph{Physics switches.} \texttt{enableSpanForce}, \texttt{enableSpanGeomVelocity},
+\texttt{enableSpanCOPMigration}, and \texttt{enableTxDamping} all \emph{on};
+\texttt{enableSpanTorqueAttenuation} \emph{off}. Notably the reduced-frequency attenuation is
+\emph{not} used in this tuning: stability is instead obtained with a weak span force
+($C_{\text{span}}=0.2$) plus roll damping ($T_x$) on, which raises the parametric-instability
+threshold directly.
+
+\paragraph{Tuned coefficients} (all others at the \texttt{minimal\_imp} defaults):
+$C_{\text{span}}=0.2$, $C_{\text{span,}\tau}=0.7$, $C_{fy}=1$, $C_{Tx}=1$, $k_0=0.2$.
+
+\begin{tabularx}{\textwidth}{@{} l l L @{}}
+\toprule
+\textbf{Mode} & \textbf{Nut position $[x;y;z]$} & \textbf{Initial condition} \\
+\midrule
+Spanwise-axis fluttering   & $[0;\,0;\,0]$ (center) & $\tfrac\pi6$ tilt about $z$ \\
+Gliding                    & $[0.5c;\,0;\,0]$       & from rest \\
+Diving                     & $[1.5c;\,0;\,0]$       & from rest \\
+Fluttering $+$ spiral      & $[0;\,0;\,0.01S]$      & $\tfrac\pi6$ tilt about $z$ \\
+Fluttering $+$ tight spiral& $[0;\,0;\,S]$          & $\tfrac\pi6$ tilt about $z$ \\
+Autorotation               & $[c;\,0;\,1.2S]$       & from rest \\
+Parachute                  & $[0;\,-c;\,0]$         & from rest \\
+\bottomrule
+\end{tabularx}
+
+\medskip
+\noindent These are basic illustrative examples---not the exact mode-onset boundaries.
+
 \section*{Where it fits in the implementation}
 Functions live under \texttt{physics/} with sub-folders \texttt{aero/}, \texttt{mass/}, and
 \texttt{helpers/}.

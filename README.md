@@ -133,6 +133,49 @@ Each script has an editable configuration block at the top and assumes `physics/
 
 ---
 
+## Reproducing the flight modes
+
+The configuration below reproduces the full set of biological descent modes. It uses the
+whole-seed spanwise extensions with an empirically-tuned parameter set (recorded in
+[`testing/Working Dynamics Inputs 7-24-26.txt`](testing/Working%20Dynamics%20Inputs%207-24-26.txt)).
+
+**Base seed** (all runs): nut mass `75e-6` kg at the body center, body density `65` kg/m³,
+span `0.050` m, chord `0.015` m; air (`rhoFluid = 1.225`, buoyancy ignored); released from
+rest for 10 s unless an initial attitude is given.
+
+**Physics switches** (`seedParams.*`):
+
+| switch | value |
+|---|---|
+| `enableSpanForce` | `true` |
+| `enableSpanGeomVelocity` | `true` |
+| `enableSpanCOPMigration` | `true` |
+| `enableSpanTorqueAttenuation` | `false` |
+| `enableTxDamping` | `true` |
+
+**Tuned aero** (`seedParams.aero.*`; every other coefficient stays at its default):
+`C_span = 0.2`, `C_span_torque = 0.7` (with `C_fy = 1`, `C_Tx = 1.0`, `k0_spanTorque = 0.2`).
+With this tuning the reduced-frequency torque attenuation is *not* needed — stability comes
+from the weak span force plus roll damping (`Tx`).
+
+**Mode-eliciting inputs** (`c = chordLength`, `S = spanLength`; `theta0 = [0 0 pi/6]` is an
+initial tilt of π/6 about the body-`z` / spanwise axis):
+
+| Mode | Nut position `[x; y; z]` | Initial condition |
+|---|---|---|
+| Spanwise-axis fluttering | `[0; 0; 0]` (center) | `theta0 = [0 0 pi/6]` |
+| Gliding | `[0.5*c; 0; 0]` | from rest |
+| Diving | `[1.5*c; 0; 0]` | from rest |
+| Fluttering + spiral | `[0; 0; 0.01*S]` | `theta0 = [0 0 pi/6]` |
+| Fluttering + tight spiral | `[0; 0; S]` | `theta0 = [0 0 pi/6]` |
+| Autorotation | `[c; 0; 1.2*S]` | from rest |
+| Parachute | `[0; -c; 0]` | from rest |
+
+> These are basic illustrative examples — not the exact mode-onset boundaries, and not
+> necessarily the cleanest instance of each mode.
+
+---
+
 ## The model in brief
 
 - **Per strip:** translational lift + drag (at the migrating centre of pressure) and
