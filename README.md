@@ -1,9 +1,10 @@
 # 6-DOF Seed Dynamics
+Create by Yohan Sequeira, with great help from Olivia Pomerenk
 
 A MATLAB simulation of the free flight of an autorotating winged seed (a **samara**) —
 modelled as a flat plate with a discrete "nut" mass — using **quasi-steady strip-theory
 aerodynamics**. It is a full 6-degree-of-freedom (13-state) extension of the classic 2D
-Andersen–Pesavento–Wang falling-plate model into three dimensions.
+Andersen–Pesavento–Wang/Pomerenk-Ristroph falling-plate model into three dimensions.
 
 The goal is to reproduce, and let you explore, the diverse descent behaviours real seeds
 exhibit — gliding, diving, fluttering, tumbling/spiralling, and autorotation — and to see
@@ -75,7 +76,7 @@ Read that for the math; this README is orientation.
 
 | File | Role |
 |---|---|
-| **[`Olivia Code/minimal_imp_Commented.m`](Olivia%20Code/minimal_imp_Commented.m)** | The **2D reference model** (Andersen–Pesavento–Wang falling plate). Ground truth for all aerodynamic physics — every coefficient and force term in the 3D code traces back to it. |
+| **[`Olivia Code/minimal_imp_Commented.m`](Olivia%20Code/minimal_imp_Commented.m)** | The **2D reference model** (Andersen–Pesavento–Wang//Pomerenk-Ristroph falling plate). Ground truth for all aerodynamic physics — every coefficient and force term in the 3D code traces back to it. |
 | **[`physics/seed6DOFODE.m`](physics/seed6DOFODE.m)** | The **ODE right-hand side** passed to `ode45`. Orchestrates mass properties, per-strip aero, whole-seed terms, and the equations of motion; returns the 13-state derivative. This is the heart of the simulation. |
 | **[`physics/aero/computeAeroCoeffs.m`](physics/aero/computeAeroCoeffs.m)** | The **aerodynamic coefficients** (`CT`, `CD`, centre-of-pressure fraction, rotational-lift and spin-damping constants) as functions of angle of attack, with the attached↔separated blend and the three angle-of-attack branches. A direct port of the 2D coefficient laws. |
 | **[`physics/setupSeedShapeAndMass.m`](physics/setupSeedShapeAndMass.m)** | Turns a 2D wing polyshape + a nut mass into a full `seedParams` struct: strip geometry, and the (optionally time-varying) CoM and inertia tensor. |
@@ -90,7 +91,7 @@ Read that for the math; this README is orientation.
 ## Running the code
 
 **Requirements:** MATLAB (R2020b or newer recommended). No toolboxes required beyond core
-MATLAB.
+MATLAB. But it's nice if you have the aerospace toolbox for quaternion conversion.
 
 ### Quick start — a single drop
 
@@ -136,7 +137,7 @@ Each script has an editable configuration block at the top and assumes `physics/
 
 - **Per strip:** translational lift + drag (at the migrating centre of pressure) and
   rotational lift (at mid-chord), from the 2D quasi-steady coefficient laws.
-- **Whole seed:** gravity, added mass, gyroscopic and time-varying-inertia torques, and the
+- **Whole seed:** gravity, added mass, gyroscopic and time-varying-inertia damping torques, and the
   optional spanwise-flow force/torque and spin-damping terms.
 - **Deliberately omitted:** buoyancy (negligible in air) and added-mass CoM-offset coupling.
 
@@ -147,18 +148,18 @@ Full derivation, including every coefficient branch and added-mass term, is in
 
 ## References
 
-The model and its validation targets draw on:
+The model and its validation targets draw on (not an exhaustive list):
 
-1. Andersen, A., Pesavento, U., & Wang, Z. J. (2005). *Unsteady aerodynamics of fluttering
-   and tumbling plates.* Journal of Fluid Mechanics, 541, 65–90. — the 2D quasi-steady
-   falling-plate model this code extends.
-2. Andersen, A., Pesavento, U., & Wang, Z. J. (2005). *Analysis of transitions between
-   fluttering, tumbling and steady descent of falling cards.* Journal of Fluid Mechanics,
-   541, 91–104.
-3. Pomerenk, O., & Ristroph, L. (2024). *Aerodynamic equilibria and flight stability of
+1. Pomerenk, O., & Ristroph, L. (2024). *Aerodynamic equilibria and flight stability of
    plates at intermediate Reynolds numbers.* Journal of Fluid Mechanics.
    [arXiv:2408.08864](https://arxiv.org/abs/2408.08864) — steady equilibria (gliding,
    diving) and stability of the falling-plate modes.
+2. Andersen, A., Pesavento, U., & Wang, Z. J. (2005). *Unsteady aerodynamics of fluttering
+   and tumbling plates.* Journal of Fluid Mechanics, 541, 65–90. — the 2D quasi-steady
+   falling-plate model this code extends.
+3. Andersen, A., Pesavento, U., & Wang, Z. J. (2005). *Analysis of transitions between
+   fluttering, tumbling and steady descent of falling cards.* Journal of Fluid Mechanics,
+   541, 91–104.
 4. *Aerodynamic significance of mass distribution on diverse samara descent behaviors.*
    (2025). Communications Engineering.
    [nature.com/articles/s44172-025-00465-8](https://www.nature.com/articles/s44172-025-00465-8)
