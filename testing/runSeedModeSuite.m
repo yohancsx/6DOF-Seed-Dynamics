@@ -1,139 +1,93 @@
-%% Seed flight-MODE suite -- elicit & classify biological descent modes
-% Five sections, one per target mode. Each moves the nut along the relevant
-% axis over a tunable range, drops the seed, and uses computeTrajectoryMetrics
-% + classifyFlightMode to name the resulting flight mode -- so you can (a) tune
-% the sweep until the mode appears clearly, and (b) check that the classifier
-% labels kinematics you already recognise.
+%% Seed flight-MODE suite -- the seven named modes at their working inputs
+% One section per mode, each a SINGLE drop using the exact nut position and
+% initial condition from "Working Dynamics Inputs 7-24-26.txt", run with the
+% working physics configuration. Each run prints a metric/classifier summary;
+% the viewer at the bottom shows the 3D trajectory and Euler angles per mode so
+% you can classify them by eye and debug toward the simplest model that still
+% produces every mode.
 %
-% Adjust the per-section `sweep.*` settings (range, increments, axis) and the
-% classifier thresholds in Section 0 as you go. Run section-by-section.
-%
-% Body axes: x=chord, y=normal/vertical, z=span. Sweep axes:
-%   chord    -> glide / dive        span  -> spiral tumbling / tight spiral
-%   diag     -> autorotation        vertical (out-of-plane Y) -> parachuting
-%
-% Free of local functions, so it can be saved as a live script (.mlx).
+% Body axes: x = chord, y = plate-normal, z = span.  c = chordLength, S = spanLength.
+% Run Section 0 first (it resets `modeResults`), then the mode sections top to
+% bottom, then the viewer.
 
-%% 0. Configuration & baseline seed  -- EDIT HERE
-% --- Paths (edit for your machine) ----------------------------------------
+%% 0. Configuration  -- working physics + base seed
 helpersFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics\testing\helpers";
 addpath(helpersFolder);
 % NOTE: physics/ and visualization/ are assumed already on the MATLAB path.
 
-% --- Baseline seed geometry / material ------------------------------------
+% --- Baseline seed geometry / material (working base seed) ----------------
 cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;
-cfg.bulkDensity = 65;    cfg.numStrips   = 10;      cfg.tSamples  = 0;
-cfg.nutMass     = 75e-6;    % nut mass (kg); its POSITION is what each section sweeps
+cfg.bulkDensity = 65;      cfg.numStrips   = 10;      cfg.tSamples  = 0;
+cfg.nutMass     = 75e-6;   % kg
 
 % --- Environment ----------------------------------------------------------
 cfg.rhoFluid = 1.225;   cfg.g = 9.81;
-cfg.enableSpanForce        = true;   % whole-seed spanwise force ON (default)
-cfg.enableSpanGeomVelocity = true;   % include omega x r in the span-force velocity
-                                      % set false to drive it from CoM translation only
 
-% --- Simulation (modes need time to develop) ------------------------------
-cfg.tspan = [0 8];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;
+% --- Physics switches (the default "FULL-minus-geomVelocity" config) -------
+cfg.enableSpanForce             = true;
+cfg.enableSpanTorque            = true;
+cfg.enableSpanGeomVelocity      = false;   % no measurable effect on any mode
+cfg.enableSpanCOPMigration      = true;
+cfg.enableSpanTorqueAttenuation = false;
+cfg.enableTxDamping             = true;
+cfg.aero = struct('C_span', 0.2, 'C_span_torque', 0.7);   % rest at defaults
 
-% --- Analysis -------------------------------------------------------------
-cfg.metricOpts.windowStartFrac = 0.5;    % use the latter 50% for steady metrics
+% --- Simulation -----------------------------------------------------------
+cfg.tspan = [0 10];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;
+
+% --- Analysis (classifier is REFERENCE only; classify by eye from the plots)
+cfg.metricOpts.windowStartFrac = 0.5;
 cfg.metricOpts.convergeTol     = 0.20;
-cfg.modeThresholds = defaultModeThresholds();   % <-- tune these fields to taste
-cfg.plotVisible    = 'on';               % show overlay figures live
+cfg.modeThresholds = defaultModeThresholds();
 
-% --- Baseline base-seed-params (symmetric rectangular reference) ----------
+% --- Baseline base-seed-params --------------------------------------------
 xh = cfg.spanLength / 2;   yh = cfg.chordLength / 2;
-baselineBsp.seedShape     = polyshape([-xh, xh, xh, -xh], [-yh, -yh, yh, yh]);
-baselineBsp.seedDensity   = cfg.bulkDensity * cfg.thickness;
-baselineBsp.seedThickness = cfg.thickness;
-baselineBsp.numStrips     = cfg.numStrips;
-baselineBsp.tSamples      = cfg.tSamples;
-baselineBsp.nutMass_t     = cfg.nutMass * ones(size(cfg.tSamples));
-baselineBsp.nutPos_t      = repmat([0;0;0], 1, numel(cfg.tSamples));
+baseBsp.seedShape     = polyshape([-xh, xh, xh, -xh], [-yh, -yh, yh, yh]);
+baseBsp.seedDensity   = cfg.bulkDensity * cfg.thickness;
+baseBsp.seedThickness = cfg.thickness;
+baseBsp.numStrips     = cfg.numStrips;
 
-baselineSeedParams = buildSeedParams(baselineBsp, cfg);
+% Shorthands + the pi/6-about-z release used by the fluttering modes.
+c = cfg.chordLength;   S = cfg.spanLength;
+qLevel = [1; 0; 0; 0];
+qTilt  = axisAngleToQuat([0; 0; 1], pi/6);
+noSpin = [0; 0; 0];
 
-%% 1. Gliding / diving  (nut along the CHORD)
-% Increasing chordwise offset should pass flutter -> glide -> dive. Widen the
-% range or add increments until you clearly see a glide and then a dive.
-sweep = struct();
-sweep.name         = 'glide_dive';
-sweep.axis         = 'chord';
-sweep.fracRange    = [0.0 2.0];   % 0 .. 2x half-chord (off-plate at >1)
-sweep.nSweep       = 6;
-sweep.expectedMode = {'fluttering', 'gliding', 'diving'};
-res_glideDive = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
+modeResults = [];   % reset the collection (Section 0 must run first)
 
-%% 2. Spiral tumbling  (nut along the SPAN, small-to-intermediate)
-% A modest spanwise offset should tumble about the spanwise axis while circling
-% the vertical axis -- a wide helix. Released with an initial pi/6 tilt about the
-% body z (spanwise) axis so the tumble has something to start from, rather than
-% sitting in the symmetric broadside equilibrium.
-sweep = struct();
-sweep.name         = 'spiral_tumbling';
-sweep.axis         = 'span';
-sweep.fracRange    = [0.2 1.0];
-sweep.nSweep       = 6;
-sweep.expectedMode = {'spiralTumbling', 'tumbling'};
-sweep.q0           = axisAngleToQuat([0; 0; 1], pi/6);   % pi/6 tilt about body z
-res_spiralTumbling = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
+%% 1. Spanwise-axis fluttering   nut center, pi/6 tilt about z
+modeResults = [modeResults, ...
+    runSingleMode('Spanwise-axis fluttering', [0; 0; 0], qTilt, noSpin, cfg, baseBsp)];
 
-%% 3. Tight spiral  (nut along the SPAN, further out)
-% Larger spanwise offset should tighten the helix; note it may transition
-% toward autorotation as the seed becomes strongly tip-heavy. Same pi/6 initial
-% tilt about the body z (spanwise) axis as Section 2, so the two sweeps differ
-% only in nut offset.
-sweep = struct();
-sweep.name         = 'tight_spiral';
-sweep.axis         = 'span';
-sweep.fracRange    = [1.0 2.0];
-sweep.nSweep       = 6;
-sweep.expectedMode = {'tightSpiral', 'autorotation'};
-sweep.q0           = axisAngleToQuat([0; 0; 1], pi/6);   % pi/6 tilt about body z
-res_tightSpiral = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
+%% 2. Gliding                    nut +0.5c chordwise, from rest
+modeResults = [modeResults, ...
+    runSingleMode('Gliding', [0.5*c; 0; 0], qLevel, noSpin, cfg, baseBsp)];
 
-%% 4. Autorotation  (nut along the DIAGONAL, off-body; small spin nudge)
-% Strong offset (nut outside the body) plus a tiny yaw nudge to break the
-% unstable from-rest symmetry -> steady spin about the vertical axis.
-sweep = struct();
-sweep.name         = 'autorotation';
-sweep.axis         = 'diag';
-sweep.fracRange    = [1.0 2.5];
-sweep.nSweep       = 6;
-sweep.expectedMode = {'autorotation', 'tightSpiral'};
-sweep.omega0       = [0; 2; 0];   % small initial spin about the plate normal (rad/s)
-res_autorotation = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
+%% 3. Diving                     nut +1.5c chordwise, from rest
+modeResults = [modeResults, ...
+    runSingleMode('Diving', [1.5*c; 0; 0], qLevel, noSpin, cfg, baseBsp)];
 
-%% 5. Parachuting  (nut BELOW the plate, out-of-plane along Y)
-% CoM below the plate is pendulum-stable broadside -> slow, near-vertical,
-% non-spinning descent. First exercise of a nonzero-Y nut -- sanity-check it.
-sweep = struct();
-sweep.name         = 'parachuting';
-sweep.axis         = 'vertical';
-sweep.fracRange    = [1.0 5.0];   % nut 1..5 half-chords below the plate
-sweep.nSweep       = 5;
-sweep.expectedMode = {'parachuting'};
-res_parachuting = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
+%% 4. Fluttering + spiral        nut +0.01S spanwise, pi/6 tilt about z
+modeResults = [modeResults, ...
+    runSingleMode('Fluttering + spiral', [0; 0; 0.01*S], qTilt, noSpin, cfg, baseBsp)];
 
-%% 6. C_span sweep  (DIAGNOSTIC: how much is the span force suppressing autorotation?)
-% Holds the seed FIXED in a strongly tip-heavy, autorotation-prone configuration
-% and sweeps only the span-force tuning coefficient. Because the span force
-% scales linearly with C_span, C_span = 0 is exactly equivalent to running with
-% enableSpanForce = false -- so the low end should reproduce the autorotation you
-% already see with span forces off, and the sweep shows where (and how sharply)
-% increasing span force destroys it.
-%
-% Read the table for the C_span value at which the mode stops being
-% autorotation: that is the usable ceiling for keeping span forces on.
-% If autorotation NEVER appears (even at C_span = 0), the cause is elsewhere --
-% see the lift-deficit / LEV note below.
-sweep = struct();
-sweep.name         = 'C_span_sweep';
-sweep.axis         = 'C_span';
-sweep.fixedAxis    = 'diag';    % nut held on the diagonal (tip-heavy)...
-sweep.fixedNutFrac = 2.0;       % ...well off the planform -> autorotation-prone
-sweep.fracRange    = [0.0 1.0]; % C_span values (0 = span force off)
-sweep.nSweep       = 6;
-sweep.expectedMode = {'autorotation'};
-sweep.omega0       = [0; 2; 0];                          % spin nudge (as Section 4)
-sweep.q0           = axisAngleToQuat([0; 0; 1], pi/6);   % pi/6 tilt about body z
-res_CspanSweep = runModeSweep(sweep, cfg, baselineBsp, baselineSeedParams);
+%% 5. Fluttering + tight spiral  nut +S spanwise, pi/6 tilt about z
+modeResults = [modeResults, ...
+    runSingleMode('Fluttering + tight spiral', [0; 0; S], qTilt, noSpin, cfg, baseBsp)];
+
+%% 6. Autorotation               nut +c chord & +1.2S span, from rest
+modeResults = [modeResults, ...
+    runSingleMode('Autorotation', [c; 0; 1.2*S], qLevel, noSpin, cfg, baseBsp)];
+
+%% 7. Parachute                  nut -c below the plate (out-of-plane), from rest
+modeResults = [modeResults, ...
+    runSingleMode('Parachute', [0; -c; 0], qLevel, noSpin, cfg, baseBsp)];
+
+%% 8. View each mode  -- trajectory + Euler angles
+% Edit modesToView to a subset of indices (1..7) to view fewer at once.
+modesToView = 1:numel(modeResults);
+for i = modesToView
+    r = modeResults(i);
+    visualizeSeedTrajectory(r.t, r.x(:,1:3).', r.x(:,4:7).', ...
+        struct('fig1Name', [r.name ' - traj'], 'fig2Name', [r.name ' - angles']));
+end

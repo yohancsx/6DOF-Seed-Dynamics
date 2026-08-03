@@ -1,27 +1,20 @@
 function th = defaultModeThresholds()
-% DEFAULTMODETHRESHOLDS  Tunable thresholds for classifyFlightMode.
+% DEFAULTMODETHRESHOLDS  Thresholds for classifyFlightMode.
 %
-% These are STARTING GUESSES, not calibrated values. The intended workflow:
-% run runSeedModeSuite on cases whose mode you already know, compare the
-% classifier output to reality, and adjust these until the labels match --
-% THEN freeze them. Get a copy to edit with:
-%     th = defaultModeThresholds();  th.glideHi = 0.7;  % etc.
-% and pass it to classifyFlightMode / runModeSweep.
+% Calibrated against the seven known working modes (see the mode-ablation /
+% metric-dump runs) with the default "FULL-minus-geomVelocity" physics. The key
+% discriminator is tiltStd (cone-angle variation): a spinning seed with a STEADY
+% cone (tiltStd ~ 0) is autorotating; one whose cone swings (tiltStd large) is
+% tumbling/spiralling. Re-calibrate if the physics or seed changes.
 %
-% Units: spins in rad/s, cone/tilt in degrees, speeds in m/s, radii in m,
-% glide ratio and straightness dimensionless.
+% Units: spins rad/s, angles/cone deg, radii m, glide ratio dimensionless.
 
-    th.spinVhi    = 5.0;   % "fast" vertical-axis spin -> autorotation
-    th.spinVlo    = 1.0;   % "some" vertical-axis spin -> spiral
-    th.tumbleHi   = 5.0;   % sustained end-over-end (spanwise) spin -> tumbling
-    th.tumbleLo   = 1.0;   % below this, end-over-end is negligible
-    th.coneLo     = 20;    % deg: plate near-flat / broadside
-    th.coneHi     = 60;    % deg: plate near edge-on
-    th.glideHi    = 0.5;   % glide ratio above which motion counts as gliding
-    th.glideLo    = 0.2;   % glide ratio below which it is not gliding
-    th.straightHi = 0.8;   % straightness (0..1) required for gliding
-    th.descentLo  = 1.0;   % "slow" descent (autorotation / parachute)
-    th.descentHi  = 2.0;   % "fast" descent (dive)
-    th.helixTight = 0.05;  % m: helix radius below which the spiral is "tight"
-    th.flutterTilt= 10;    % deg: tilt std above which the plate is oscillating
+    th.spinLo     = 5.0;   % below this on BOTH spin axes -> not rotating
+    th.vSpinAuto  = 10;    % vertical-axis spin needed for autorotation / spiral
+    th.tiltSteady = 5.0;   % deg: cone-angle std below which the cone is "steady"
+                           % (autorotation) vs. flipping (tumbling/spiral)
+    th.helixTight = 0.05;  % m: horizontal helix radius below which a spiral is "tight"
+    th.glideHi    = 1.0;   % glide ratio above which motion counts as gliding
+    th.coneEdge   = 45;    % deg: cone above this (no spin) -> diving (edge-on)
+    th.coneBroad  = 20;    % deg: cone below this (no spin) -> parachuting (broadside)
 end

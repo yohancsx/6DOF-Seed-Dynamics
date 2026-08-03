@@ -1,22 +1,21 @@
 function [mode, info] = classifyFlightMode(m, th)
 % CLASSIFYFLIGHTMODE  Heuristic rule-tree classifier: trajectory metrics -> mode.
 %
-% Maps the descriptors from computeTrajectoryMetrics to a named flight mode.
-% Vocabulary (informed by the samara / falling-plate literature):
-%   'gliding'        sloped, constant-speed, low spin, straight
-%   'diving'         steep, edge-on, fast
-%   'parachuting'    broadside, slow, little horizontal travel (CoM-below)
-%   'tumbling'       sustained end-over-end (spanwise-axis) rotation
-%   'spiralTumbling' vertical-axis spin along a WIDE helix (large horizontal spread)
-%   'tightSpiral'    vertical-axis spin along a TIGHT helix
-%   'autorotation'   steady vertical-axis spin, small cone, slow, near-centred
-%   'fluttering'     oscillating tilt, no net spin (side-to-side falling card)
-%   'chaotic'        did not settle / irregular
-%   'undetermined'   no rule matched (inspect the metrics)
+% Vocabulary (matching the seven named working modes):
+%   'gliding'      no spin, high glide ratio, low cone
+%   'diving'       no spin, edge-on (high cone), fast
+%   'parachuting'  no spin, broadside (low cone), slow
+%   'fluttering'   flips about the span axis, no vertical circling
+%   'spiral'       vertical spin + flipping, WIDE helix
+%   'tightSpiral'  vertical spin + flipping, TIGHT helix
+%   'autorotation' vertical spin at a STEADY cone (tiltStd ~ 0)
+%   'chaotic'      did not converge
+%   'undetermined' no rule matched
 %
-% This is a TRANSPARENT, order-dependent rule tree -- the first matching branch
-% wins. Thresholds are tunable (see defaultModeThresholds); calibrate them
-% against known cases before trusting the output.
+% The autorotation-vs-spiral split is the whole point: both spin about the
+% vertical, but autorotation holds a steady cone (small tiltStd) while a spiral
+% flips end-over-end as it circles (large tiltStd). Transparent, order-dependent
+% rule tree; first match wins. Thresholds are calibrated (see defaultModeThresholds).
 %
 % INPUTS
 %   m  : metrics struct from computeTrajectoryMetrics.
@@ -28,54 +27,48 @@ function [mode, info] = classifyFlightMode(m, th)
 
     if nargin < 2 || isempty(th); th = defaultModeThresholds(); end
 
-    spinV = m.verticalSpinMag;   % vertical-axis spin  (spiral / autorotation)
-    spinZ = m.spanwiseSpin;      % end-over-end spin   (tumbling)
-    cone  = m.coneAngleDeg;      % 0 = flat/broadside, 90 = edge-on
-    gr    = m.glideRatio;
-    tight = m.helixValid && m.helixRadius < th.helixTight;
+    spinning = (m.verticalSpinMag > th.spinLo) || (m.spanwiseSpin > th.spinLo);
+    tight    = m.helixValid && (m.helixRadius < th.helixTight);
 
     if ~m.converged
         mode = 'chaotic';
         reason = 'did not settle (descent/spin not converged)';
 
-    elseif spinV > th.spinVhi && cone < th.coneLo ...
-            && m.descentSpeed < th.descentLo && tight
-        mode = 'autorotation';
-        reason = 'steady fast vertical spin, small cone, slow, near-centred';
-
-    elseif spinZ > th.tumbleHi
-        mode = 'tumbling';
-        reason = 'sustained end-over-end (spanwise) rotation';
-
-    elseif spinV > th.spinVlo && m.helixValid
-        if tight
-            mode = 'tightSpiral';
-            reason = 'vertical-axis spin along a tight helix';
+    elseif ~spinning
+        % --- No rotation: glide / dive / parachute -------------------------
+        if m.glideRatio > th.glideHi
+            mode = 'gliding';
+            reason = 'no spin, high glide ratio';
+        elseif m.coneAngleDeg > th.coneEdge
+            mode = 'diving';
+            reason = 'no spin, edge-on (high cone)';
+        elseif m.coneAngleDeg < th.coneBroad
+            mode = 'parachuting';
+            reason = 'no spin, broadside (low cone), slow';
         else
-            mode = 'spiralTumbling';
-            reason = 'vertical-axis spin along a wide helix';
+            mode = 'undetermined';
+            reason = 'no spin, but not clearly glide/dive/parachute';
         end
 
-    elseif gr > th.glideHi && spinV < th.spinVlo ...
-            && spinZ < th.tumbleLo && m.straightness > th.straightHi
-        mode = 'gliding';
-        reason = 'high glide ratio, straight track, low spin';
+    elseif (m.verticalSpinMag > th.vSpinAuto) && (m.tiltStd < th.tiltSteady)
+        % --- Vertical spin at a STEADY cone -> autorotation ----------------
+        mode = 'autorotation';
+        reason = 'vertical-axis spin at a steady cone (low tiltStd)';
 
-    elseif gr < th.glideLo && cone > th.coneHi && m.descentSpeed > th.descentHi
-        mode = 'diving';
-        reason = 'steep, edge-on, fast descent';
-
-    elseif gr < th.glideLo && cone < th.coneLo && m.descentSpeed < th.descentLo
-        mode = 'parachuting';
-        reason = 'broadside, slow, little horizontal travel';
-
-    elseif m.tiltStd > th.flutterTilt && spinV < th.spinVlo && spinZ < th.tumbleLo
-        mode = 'fluttering';
-        reason = 'oscillating tilt with no net spin';
+    elseif m.verticalSpinMag > th.vSpinAuto
+        % --- Vertical spin + flipping cone -> spiralling -------------------
+        if tight
+            mode = 'tightSpiral';
+            reason = 'vertical spin + flipping, tight helix';
+        else
+            mode = 'spiral';
+            reason = 'vertical spin + flipping, wide helix';
+        end
 
     else
-        mode = 'undetermined';
-        reason = 'no rule matched -- inspect metrics';
+        % --- Rotation without vertical circling -> flip about span --------
+        mode = 'fluttering';
+        reason = 'spanwise flipping, little/no vertical circling';
     end
 
     info.reason     = reason;

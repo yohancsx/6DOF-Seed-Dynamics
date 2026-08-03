@@ -339,19 +339,17 @@ seedParamsFull.massParams.I_G_t      = I_G_t;         % 3x3xN (kg·m^2)
 seedParamsFull.massParams.I_G_dot_t  = I_G_dot_t;     % 3x3xN (kg·m^2/s)
 seedParamsFull.massParams.M_total    = M_total;        % scalar (kg)
 
-% --- Physics enablers ----------------------------------------------------
-% Both default true here (the physically fuller model); override on the
-% returned struct to disable. enableSpanGeomVelocity controls whether the span
-% force samples velocity with the rotational omega x r transport included, or
-% from the CoM translational velocity only -- see seed6DOFODE section 3b.
-seedParamsFull.enableSpanForce            = true;
-seedParamsFull.enableSpanGeomVelocity     = true;
-seedParamsFull.enableSpanCOPMigration     = true;   % false -> span torque at the
-                                                    % fixed geometric centre instead
-seedParamsFull.enableSpanTorqueAttenuation = true;  % reduced-frequency roll-off of
-                                                    % the span torque (protects autorotation)
-seedParamsFull.enableTxDamping            = false;  % Tx (roll) spin damping OFF by
-                                                    % default (strips capture some already)
+% --- Physics enablers (default = the "FULL-minus-geomVelocity" config) ----
+% This is the empirically-settled default that produces all seven flight modes
+% (see the mode-ablation study). Override any of these on the returned struct.
+% enableSpanGeomVelocity is OFF because it was found to have no effect on any
+% mode; the others are the working tuning.
+seedParamsFull.enableSpanForce             = true;
+seedParamsFull.enableSpanTorque            = true;   % false -> span force kept, torque dropped
+seedParamsFull.enableSpanGeomVelocity      = false;  % no measurable effect on any mode
+seedParamsFull.enableSpanCOPMigration      = true;   % false -> span torque at the geo centre
+seedParamsFull.enableSpanTorqueAttenuation = false;  % not needed (Tx + weak span force handle stability)
+seedParamsFull.enableTxDamping             = true;   % raises the roll parametric threshold
 
 % --- Pass through original sub-struct ------------------------------------
 seedParamsFull.baseSeedParams = bsp;

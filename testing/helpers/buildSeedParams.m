@@ -20,17 +20,22 @@ function sp = buildSeedParams(bsp, cfg)
     sp.rhoFluid = cfg.rhoFluid;
     sp.g        = cfg.g;
 
-    % Span-force switches: both default TRUE (the physically fuller model);
-    % set them false in cfg to disable.
+    % Physics switches: fall back to the "FULL-minus-geomVelocity" default
+    % (see setupSeedShapeAndMass) when cfg does not specify them.
     if isfield(cfg, 'enableSpanForce')
         sp.enableSpanForce = cfg.enableSpanForce;
     else
         sp.enableSpanForce = true;
     end
+    if isfield(cfg, 'enableSpanTorque')
+        sp.enableSpanTorque = cfg.enableSpanTorque;
+    else
+        sp.enableSpanTorque = true;
+    end
     if isfield(cfg, 'enableSpanGeomVelocity')
         sp.enableSpanGeomVelocity = cfg.enableSpanGeomVelocity;
     else
-        sp.enableSpanGeomVelocity = true;
+        sp.enableSpanGeomVelocity = false;   % no measurable effect on any mode
     end
     if isfield(cfg, 'enableSpanCOPMigration')
         sp.enableSpanCOPMigration = cfg.enableSpanCOPMigration;
@@ -40,12 +45,12 @@ function sp = buildSeedParams(bsp, cfg)
     if isfield(cfg, 'enableSpanTorqueAttenuation')
         sp.enableSpanTorqueAttenuation = cfg.enableSpanTorqueAttenuation;
     else
-        sp.enableSpanTorqueAttenuation = true;
+        sp.enableSpanTorqueAttenuation = false;
     end
     if isfield(cfg, 'enableTxDamping')
         sp.enableTxDamping = cfg.enableTxDamping;
     else
-        sp.enableTxDamping = false;
+        sp.enableTxDamping = true;
     end
 
     % Aero coefficient overrides are optional; if absent, computeAeroCoeffs uses

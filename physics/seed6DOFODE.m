@@ -149,10 +149,13 @@ Ty = normalSpinDamping(R_normalSpin, omega_y, CD0_const, C_fy_const, rhoFluid);
 % (default 1), so the force and torque contributions can be tuned INDEPENDENTLY
 % -- useful because tumbling needs the force while autorotation is sensitive to
 % the torque.
+% Physics switches -- absent fields fall back to the "FULL-minus-geomVelocity"
+% default (span force + torque + CoP migration + Tx on; geom-velocity and
+% attenuation off), so the model always defaults to that config.
 if isfield(seedParams, 'enableSpanForce')
     enableSpanForce = seedParams.enableSpanForce;
 else
-    enableSpanForce = false;
+    enableSpanForce = true;
 end
 if isfield(seedParams, 'enableSpanGeomVelocity')
     useSpanGeomVelocity = seedParams.enableSpanGeomVelocity;
@@ -162,7 +165,16 @@ end
 if isfield(seedParams, 'enableSpanCOPMigration')
     useSpanCOPMigration = seedParams.enableSpanCOPMigration;
 else
-    useSpanCOPMigration = false;
+    useSpanCOPMigration = true;
+end
+% enableSpanTorque (default true when the span force is on): apply the span
+% force's TORQUE contribution. Set FALSE to keep the span FORCE (the body-z
+% resistance) but drop its moment entirely -- lets you test whether the force
+% alone is enough and the torque is what destabilises autorotation.
+if isfield(seedParams, 'enableSpanTorque')
+    useSpanTorque = seedParams.enableSpanTorque;
+else
+    useSpanTorque = true;
 end
 % enableSpanTorqueAttenuation (default false): scale the span torque by a
 % reduced-frequency factor 1/(1+(k/k0)^2), k = |omega_y|*S/(2*v_ip). Keys on the
@@ -181,7 +193,7 @@ end
 if isfield(seedParams, 'enableTxDamping')
     useTxDamping = seedParams.enableTxDamping;
 else
-    useTxDamping = false;
+    useTxDamping = true;
 end
 
 % Contributions default to zero so the post-loop accumulation is unconditional.
@@ -263,8 +275,13 @@ if enableSpanForce
     end
 
     % C_span_torque scales the torque only, leaving F_span_apply untouched, so
-    % the force and torque strengths are independently tunable.
-    tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_full);
+    % the force and torque strengths are independently tunable. enableSpanTorque
+    % gates the moment entirely (force still applied) for on/off debugging.
+    if useSpanTorque
+        tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_full);
+    else
+        tau_span = [0; 0; 0];   % span FORCE kept, span TORQUE dropped
+    end
     %tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_apply);
 end
 

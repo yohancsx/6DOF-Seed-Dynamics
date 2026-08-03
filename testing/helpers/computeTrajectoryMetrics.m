@@ -77,9 +77,19 @@ function m = computeTrajectoryMetrics(t, x, opts)
     verticalSpinRate = mean(vertSpin);        % signed (handedness)
     verticalSpinMag  = mean(abs(vertSpin));
 
+    % Tumble fraction: |net| / |total| rotation about body z over the window.
+    % ~1 => the plate rotates end-over-end continuously (true tumbling); ~0 =>
+    % omega_z oscillates about zero (fluttering, or a steady spin whose body-z
+    % component just wobbles). This is what separates tumbling/spiral from a
+    % flat autorotation that only *projects* spin onto body z.
+    tw          = t(iw);
+    wz          = w(iw, 3);
+    tumbleFrac  = abs(trapz(tw, wz)) / max(trapz(tw, abs(wz)), eps);
+
     % --- Attitude ---------------------------------------------------------
     coneAngleDeg = mean(normalTilt);          % 0 = flat/broadside, 90 = edge-on
-    tiltStd      = std(normalTilt);           % oscillation amplitude (flutter)
+    tiltStd      = std(normalTilt);           % cone-angle variation: small = steady
+                                              % cone (autorotation), large = flipping
 
     % --- Convergence: descent speed & spin steady across window halves ----
     half = floor(nw / 2);
@@ -102,6 +112,7 @@ function m = computeTrajectoryMetrics(t, x, opts)
                'spanwiseSpin', spanwiseSpin, 'normalSpin', normalSpin, ...
                'verticalSpinRate', verticalSpinRate, 'verticalSpinMag', verticalSpinMag, ...
                'coneAngleDeg', coneAngleDeg, 'tiltStd', tiltStd, ...
+               'tumbleFrac', tumbleFrac, ...
                'converged', converged, 'windowStartFrac', opts.windowStartFrac);
 end
 
