@@ -44,7 +44,7 @@ cfg.enableSpanTorqueAttenuation = true;
 
 % --- CoM travel limits (fractions of the half-dimension) ------------------
 fChordMax  = 1.0;    % chordwise sweep amplitude (scenario 2), x half-chord
-fSpanMax   = 0.01;    % spanwise  sweep amplitude (scenario 1), x half-span
+fSpanMax   = 0.05;    % spanwise  sweep amplitude (scenario 1), x half-span
 % Scenario 3 waypoints:
 fChordGlide = 0.8;   % initial chordwise offset -> glide
 fSpanSpin   = 1.2;   % spanwise offset -> spin up
@@ -57,6 +57,20 @@ cfg.dt        = 0.02;   % dense CoM-path / mass-sample timestep (s)
 
 % --- Integrator -----------------------------------------------------------
 cfg.odeOpts = odeset('RelTol', 1e-6, 'AbsTol', 1e-8);
+
+% --- Combined mode animation (animateModeTrajectory) ----------------------
+% Each scenario also renders a mode-coloured animation: 3D trajectory (left),
+% CoM-within-the-seed-body (top-right), and a zoomed seed follow-cam showing the
+% plate spinning/gliding (bottom-right). Set makeAnimation=false to skip the
+% (slower) video writing. animFps sets the whole animation's frame rate;
+% animPlaybackSpeed<1 slows it down (e.g. 0.25) to actually watch the fast spin.
+cfg.makeAnimation     = true;
+cfg.animFps           = 30;
+cfg.animPlaybackSpeed = 0.25;
+cfg.showSeedVels      = false;
+here                  = fileparts(mfilename('fullpath'));
+if isempty(here); here = pwd; end
+cfg.animDir           = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\COM Movement Tests";   % where the .mp4s land
 
 % --- Half-dimension references + baseline base-seed-params ----------------
 hc = cfg.chordLength / 2;    hs = cfg.spanLength / 2;
@@ -94,7 +108,7 @@ function runComScenario(name, posList, dwellList, cfg, baseBsp)
 % dwellList: 1xK pause held at each waypoint (s). cfg.moveTime is the transition.
 
     % --- Smooth, dense nut-position path over the whole flight -------------
-    [tD, nutPos] = buildComPath(posList, dwellList, cfg.moveTime, cfg.dt);
+    [tD, nutPos, eventT] = buildComPath(posList, dwellList, cfg.moveTime, cfg.dt);
 
     % --- Build the time-varying seed --------------------------------------
     bsp = baseBsp;
@@ -104,7 +118,8 @@ function runComScenario(name, posList, dwellList, cfg, baseBsp)
     sp = buildSeedParams(bsp, cfg);
 
     % --- Integrate (from rest, level) -------------------------------------
-    x0 = [zeros(3,1); [1;0;0;0]; zeros(3,1); zeros(3,1)];
+    q0 = eul2quat([0 0 pi/6],'XYZ')';
+    x0 = [zeros(3,1); q0; zeros(3,1); zeros(3,1)];
     [t, x] = ode45(@(tt,xx) seed6DOFODE(tt, xx, sp), [tD(1) tD(end)], x0, cfg.odeOpts);
 
     % --- Trajectory + Euler angles ----------------------------------------
@@ -120,6 +135,21 @@ function runComScenario(name, posList, dwellList, cfg, baseBsp)
     legend('chord (body x)', 'normal (body y)', 'span (body z)', 'Location', 'best');
     title([name ' -- commanded nut position'], 'Interpreter', 'none');
 
+    % --- Combined mode-coloured animation (3D traj + top view + Euler) -----
+    % eventT (the arrival at each CoM waypoint) is marked, so the mode onsets
+    % line up with the commanded moves.
+    if isfield(cfg, 'makeAnimation') && cfg.makeAnimation
+        vfile = fullfile(cfg.animDir, [matlab.lang.makeValidName(name) '.mp4']);
+        animateModeTrajectory(t, x, struct( ...
+            'videoFile',  vfile, ...
+            'fps',        cfg.animFps, ...
+            'playbackSpeed', cfg.animPlaybackSpeed, ...
+            'showSeedVels', cfg.showSeedVels, ...
+            'title',      name, ...
+            'eventTimes', eventT, ...
+            'seedParams', sp));
+    end
+
     fprintf('%s: %.1f s flight, %d ode steps, final height %.3f m\n', ...
             name, tD(end), numel(t), x(end, 2));
 end
@@ -128,16 +158,20 @@ end
 % =========================================================================
 % LOCAL: waypoint list (with dwells) -> dense, pchip-smoothed nut path
 % =========================================================================
-function [tDense, nutPos] = buildComPath(posList, dwellList, moveTime, dt)
+function [tDense, nutPos, eventT] = buildComPath(posList, dwellList, moveTime, dt)
 % Builds a strictly-increasing waypoint schedule -- hold each posList column for
 % its dwell, then move to the next over moveTime -- and interpolates it onto a
 % dense grid with pchip (shape-preserving: flat dwells stay flat, no overshoot).
+% eventT returns the arrival time of each waypoint (start of its dwell), for
+% marking the CoM-move instants on downstream plots/animations.
 
     K   = size(posList, 2);
     wpT = 0;                    % waypoint times
     wpP = posList(:, 1);        % waypoint positions (3 x .)
     tcur = 0;
+    eventT = zeros(1, K);       % arrival time of each waypoint (dwell start)
     for i = 1:K
+        eventT(i) = tcur;                         % nut has arrived at waypoint i
         if dwellList(i) > 0                       % hold at waypoint i
             tcur = tcur + dwellList(i);
             wpT(end+1) = tcur;          %#ok<AGROW>

@@ -1,0 +1,4 @@
+# Generated animation / video outputs (regenerable from the test & viz scripts,
+# e.g. runComMovementTest.m -> animateModeTrajectory.m, animateSeed.m)
+*.mp4
+*.avi
