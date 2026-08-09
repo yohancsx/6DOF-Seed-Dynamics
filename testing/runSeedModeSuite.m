@@ -33,7 +33,7 @@ cfg.enableTxDamping             = true;
 cfg.aero = struct('C_span', 0.2, 'C_span_torque', 0.7);   % rest at defaults
 
 % --- Simulation -----------------------------------------------------------
-cfg.tspan = [0 10];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;
+cfg.tspan = [0 12];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;   % longer so modes settle before classifying
 
 % --- Analysis (classifier is REFERENCE only; classify by eye from the plots)
 cfg.metricOpts.windowStartFrac = 0.5;

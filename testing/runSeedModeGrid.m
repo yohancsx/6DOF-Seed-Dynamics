@@ -19,17 +19,17 @@ addpath(helpersFolder);
 cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;
 cfg.bulkDensity = 65;      cfg.numStrips   = 10;      cfg.tSamples  = 0;
 cfg.nutMass     = 75e-6;   cfg.rhoFluid = 1.225;   cfg.g = 9.81;
-cfg.tspan = [0 8];   cfg.odeRelTol = 1e-5;   cfg.odeAbsTol = 1e-7;   % looser/shorter for the grid
+cfg.tspan = [0 12];   cfg.odeRelTol = 1e-5;   cfg.odeAbsTol = 1e-7;   % longer so modes settle; loose tol keeps the grid quick
 cfg.metricOpts.windowStartFrac = 0.5;   cfg.metricOpts.convergeTol = 0.20;
 cfg.modeThresholds = defaultModeThresholds();
 % Physics: leave switches/aero UNSET so the code defaults (FULL-minus-geomVelocity) apply.
 
 % --- The grid (nut offset as fractions of chord / span) -------------------
 % Modest default so it runs in a few minutes; raise the counts for a finer map.
-chordFrac = linspace(0, 1, 30);                       % chordwise: uniform 0..2 c
+chordFrac = linspace(0, 1.5, 40);                       % chordwise: uniform 0..2 c
 % spanFrac  = [0 0.01 0.02 0.05 0.08 0.10 0.16 0.24 ...             % spanwise: dense near 0...
 %              0.35 0.50 0.70 0.90 1.10 1.5 2];                 % ...then out to 1.1 S
-spanFrac = linspace(0, 1, 30);
+spanFrac = linspace(0, 1.5, 40);
 % --- Release condition (pi/6 tilt about z, as the spiral modes need) ------
 q0     = axisAngleToQuat([0; 0; 1], pi/6);
 omega0 = [0; 0; 0];

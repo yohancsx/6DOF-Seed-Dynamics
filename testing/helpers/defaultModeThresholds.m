@@ -13,6 +13,11 @@ function th = defaultModeThresholds()
     th.vSpinAuto  = 10;    % vertical-axis spin needed for autorotation / spiral
     th.tiltSteady = 5.0;   % deg: cone-angle std below which the cone is "steady"
                            % (autorotation) vs. flipping (tumbling/spiral)
+    th.tiltChaos  = 30;    % deg: cone-angle std ABOVE which an unsettled, non-
+                           % spinning run counts as chaotic (genuine incoherent
+                           % tumbling) rather than a slow-settling named mode.
+                           % Gates 'chaotic' so non-convergence alone no longer
+                           % dumps coherent spirals/dives into 'chaotic'.
     th.helixTight = 0.05;  % m: horizontal helix radius below which a spiral is "tight"
     th.glideHi    = 1.0;   % glide ratio above which motion counts as gliding
     th.coneEdge   = 45;    % deg: cone above this (no spin) -> diving (edge-on)

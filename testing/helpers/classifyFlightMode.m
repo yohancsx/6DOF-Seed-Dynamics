@@ -9,7 +9,7 @@ function [mode, info] = classifyFlightMode(m, th)
 %   'spiral'       vertical spin + flipping, WIDE helix
 %   'tightSpiral'  vertical spin + flipping, TIGHT helix
 %   'autorotation' vertical spin at a STEADY cone (tiltStd ~ 0)
-%   'chaotic'      did not converge
+%   'chaotic'      unsettled AND incoherent (no coherent spin, large cone swing)
 %   'undetermined' no rule matched
 %
 % The autorotation-vs-spiral split is the whole point: both spin about the
@@ -30,9 +30,19 @@ function [mode, info] = classifyFlightMode(m, th)
     spinning = (m.verticalSpinMag > th.spinLo) || (m.spanwiseSpin > th.spinLo);
     tight    = m.helixValid && (m.helixRadius < th.helixTight);
 
-    if ~m.converged
+    % 'chaotic' means genuinely INCOHERENT motion, not merely "hasn't settled":
+    % a run that failed to converge but still has NO coherent vertical spin AND a
+    % wildly swinging cone (tiltStd > tiltChaos) is tumbling chaotically. A non-
+    % converged run that DOES have a coherent spin or a steady cone is just a
+    % slow-settling spiral/autorotation/dive and is classified normally below.
+    % (True numerical blow-ups are caught upstream by the ~isfinite guard, so we
+    % no longer dump every unsettled-but-coherent trajectory into 'chaotic'.)
+    incoherent = ~m.converged && (m.verticalSpinMag < th.vSpinAuto) ...
+                              && (m.tiltStd > th.tiltChaos);
+
+    if incoherent
         mode = 'chaotic';
-        reason = 'did not settle (descent/spin not converged)';
+        reason = 'unsettled and incoherent (no coherent spin, large cone swing)';
 
     elseif ~spinning
         % --- No rotation: glide / dive / parachute -------------------------

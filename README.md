@@ -246,7 +246,11 @@ Working checklist of what's outstanding. Check items off (`- [x]`) as they land.
   plus trajectory comparison, to lock the baseline before further tuning.
 - [x] Calibrate `classifyFlightMode` thresholds against the known mode-eliciting inputs.
   (Done for the txt-file inputs only; not validated across a broad range or for future
-  physics such as LEV lift.)
+  physics such as LEV lift.) Some follow-up tuning has been done to smooth the phase map:
+  a `tiltChaos` gate so a run that merely fails to settle is no longer forced to `chaotic`
+  (only genuinely incoherent tumbling is), a longer default settling time (`tspan` 12 s),
+  and a helix-radius fix so near-straight tracks no longer report a spurious finite radius.
+  This cut the phase-map "islands" from ~51 to ~31 (the rest are real spin-onset bistability).
 - [x] Flight-mode phase map: sweep a chord×span grid of nut positions, classify each, and
   render a 2D mode diagram (`runSeedModeGrid`). Caveat: it's an in-plane (chord, span) slice
   at modest resolution — parachute (out-of-plane nut) doesn't appear, and the large
@@ -262,9 +266,11 @@ Working checklist of what's outstanding. Check items off (`- [x]`) as they land.
 - [x] Trajectory-metrics extraction (`computeTrajectoryMetrics`).
 - [x] Torque-budget + span-CoP/CoM/`F_span` diagnostic animation (`runSpanForceComparison`).
 - [x] Time-varying-CoM (moving-nut) test with commanded-path plots (`runComMovementTest`).
-- [x] Automatic flight-mode classification — calibrated; labels all seven known modes
-  correctly. *Caveat: verified against the txt-file inputs only, not a broad range of
-  autorotations, and may need re-calibration for future physics (e.g. LEV).*
+- [x] Automatic flight-mode classification — calibrated and since tuned (added a `tiltChaos`
+  gate so non-convergence alone no longer reads as `chaotic`, plus a longer settling time and
+  a helix-radius fix) to smooth the phase map; labels all seven known modes correctly.
+  *Caveat: verified against the txt-file inputs only, not a broad range of autorotations, and
+  may need re-calibration for future physics (e.g. LEV).*
 - [x] Flight-mode phase diagram (chord×span map) via `runSeedModeGrid`. *Caveat: in-plane
   slice, modest resolution; autorotation region inflated by the lift deficit.*
 - [ ] Compiled PDF of `derivations/seed6DOF_physics.tex` for inline viewing on GitHub.
