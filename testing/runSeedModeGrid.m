@@ -26,10 +26,10 @@ cfg.modeThresholds = defaultModeThresholds();
 
 % --- The grid (nut offset as fractions of chord / span) -------------------
 % Modest default so it runs in a few minutes; raise the counts for a finer map.
-chordFrac = linspace(0, 1.5, 30);                       % chordwise: uniform 0..2 c
+chordFrac = linspace(0, 1.5, 40);                       % chordwise: uniform 0..2 c
 % spanFrac  = [0 0.01 0.02 0.05 0.08 0.10 0.16 0.24 ...             % spanwise: dense near 0...
 %              0.35 0.50 0.70 0.90 1.10 1.5 2];                 % ...then out to 1.1 S
-spanFrac = linspace(0, 1.5, 30);
+spanFrac = linspace(0, 1.5, 40);
 % --- Release condition (pi/6 tilt about z, as the spiral modes need) ------
 q0     = axisAngleToQuat([0; 0; 1], pi/6);
 omega0 = [0; 0; 0];
@@ -118,7 +118,7 @@ fprintf('\n');
 % chord), and a dashed rectangle outlines the actual seed body.
 sc = cfg.spanLength / cfg.chordLength;   % span-per-chord (physical aspect factor)
 xSpan  = spanFrac  * sc;                 % horizontal: span offset in chord units
-yChord = chordFrac;                      % vertical:   chord offset in chord units
+yChord = chordFrac;                    % vertical:   chord offset in chord units
 
 % Per-cell RGB, transposed to (chord rows) x (span cols) for the swapped axes.
 MI = modeIdx.';                          % Nx (chord) x Nz (span)

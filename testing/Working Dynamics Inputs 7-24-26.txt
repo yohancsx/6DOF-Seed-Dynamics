@@ -6,11 +6,11 @@ seed length (spanwise) = 0.050 m
 seed width (chordwise) = 0.015 m
 
 The important parameters for the physics are:
-seedParams.enableSpanForce = true; %allow spanwise forces (false by default)
+seedParams.enableSpanForce = true; %allow spanwise forces (true by default)
 seedParams.enableSpanGeomVelocity = true; %allow geometric center COM velocity (false by default)
-seedParams.enableSpanCOPMigration = true; %allow COP to migrate across span (false by default)
+seedParams.enableSpanCOPMigration = true; %allow COP to migrate across span (true by default)
 seedParams.enableSpanTorqueAttenuation = false; %allow torque attenuation (false by default)
-seedParams.enableTxDamping = true; %additional damping in the roll direction (false by default)
+seedParams.enableTxDamping = true; %additional damping in the roll direction (true by default)
 
 Aero params:
     aero.CL1  = 5.2;          % attached-flow lift slope

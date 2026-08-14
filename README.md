@@ -235,8 +235,10 @@ Working checklist of what's outstanding. Check items off (`- [x]`) as they land.
   autorotations, and may need re-calibration for future physics (e.g. LEV lift).
 - [ ] Autorotation descends too fast and at too steep a cone vs. real samaras (blade-element
   theory under-predicts lift; see LEV feature below).
-- [ ] `testing/Working Dynamics Inputs 7-24-26.txt` inline comments say "(false by default)"
-  for enablers that actually default `true` in the current code — misleading, should match.
+- [x] `testing/Working Dynamics Inputs 7-24-26.txt` inline comments said "(false by default)"
+  for enablers that actually default `true` — fixed to match the code (`enableSpanForce`,
+  `enableSpanCOPMigration`, `enableTxDamping` now read "(true by default)"; the two that really
+  default false were left as-is). The newer 8-2-26 inputs file was already accurate.
 
 ### Features — still to implement
 

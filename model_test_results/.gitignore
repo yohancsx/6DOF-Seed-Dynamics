@@ -1,0 +1,6 @@
+# Model-baseline snapshots live here. They can get large (many runs, videos,
+# .mat trajectories), so the RUN OUTPUTS are not tracked -- only this folder's
+# structure + docs are. Regenerate a snapshot with testing/generateModelBaseline.m.
+*
+!.gitignore
+!README.md
