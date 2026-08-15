@@ -17,7 +17,8 @@
 repoRoot = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
 addpath(fullfile(repoRoot,'physics'), fullfile(repoRoot,'physics','helpers'), ...
         fullfile(repoRoot,'physics','aero'), fullfile(repoRoot,'physics','mass'), ...
-        fullfile(repoRoot,'visualization'), fullfile(repoRoot,'testing','helpers'));
+        fullfile(repoRoot,'physics3d'), fullfile(repoRoot,'visualization'), ...
+        fullfile(repoRoot,'testing','helpers'));
 
 githash = gitField(repoRoot, 'rev-parse --short HEAD');
 gitdirty = ~isempty(strtrim(gitField(repoRoot, 'status --porcelain')));
@@ -78,7 +79,7 @@ try
     cm = base;
     cm.tspan_pad = 0;  cm.dwellTime = 1.0;  cm.moveTime = 0.8;  cm.dt = 0.02;
     cm.odeOpts = odeset('RelTol',1e-6,'AbsTol',1e-8);
-    cm.animFps = 20;   cm.th = modeThresh;
+    cm.animFps = 30;   cm.th = modeThresh; cm.animPlaybackSpeed = 0.25;
     hc = base.chordLength/2;  hs = base.spanLength/2;
     scen(1) = struct('name','S1_spanwise_sweep', ...
         'pos',{{[0;0;0],[0;0;+1.0*hs],[0;0;0],[0;0;-1.0*hs],[0;0;0]}});
@@ -129,14 +130,15 @@ function runCoarseGrid(g, base, baseBsp, outDir)
     Nx = numel(g.chordFrac);  Nz = numel(g.spanFrac);  total = Nx*Nz;
     mIdx=zeros(total,1); dSpd=nan(total,1); vSpin=nan(total,1); tiltSd=nan(total,1);
     cone=nan(total,1); glide=nan(total,1); helixR=nan(total,1); conv=false(total,1);
-    try; if isempty(gcp('nocreate')); parpool('local'); end; catch; end
+    try if isempty(gcp('nocreate')); parpool('local'); end; catch; end
     parfor k=1:total
         iz=floor((k-1)/Nx)+1; ix=mod(k-1,Nx)+1;
         bsp=baseBsp; bsp.tSamples=0; bsp.nutPos_t=[g.chordFrac(ix)*c;0;g.spanFrac(iz)*S]; bsp.nutMass_t=cfg.nutMass;
         sp=buildSeedParams(bsp,cfg); x0=[zeros(3,1);g.q0;zeros(3,1);g.omega0];
         lbl='failed'; mm=[];
         try
-            [t,x]=ode45(@(tt,xx)seed6DOFODE(tt,xx,sp),g.tspan,x0,odeOpts);
+            rhs=seedRHS(sp);
+            [t,x]=ode45(@(tt,xx)rhs(tt,xx,sp),g.tspan,x0,odeOpts);
             if any(~isfinite(x(:))); lbl='chaotic'; else; mm=computeTrajectoryMetrics(t,x,g.metricOpts); lbl=classifyFlightMode(mm,th); end
         catch; lbl='failed'; end
         j=find(strcmp(lbl,modeList),1); if isempty(j); j=numel(modeList); end
@@ -178,7 +180,8 @@ function runComScenarioBaseline(scen, cm, baseBsp, outDir)
     bsp=baseBsp; bsp.tSamples=tD; bsp.nutPos_t=nutPos; bsp.nutMass_t=cm.nutMass*ones(size(tD));
     sp=buildSeedParams(bsp,cfg);
     x0=[zeros(3,1);[1;0;0;0];zeros(3,1);zeros(3,1)];
-    [t,x]=ode45(@(tt,xx)seed6DOFODE(tt,xx,sp),[tD(1) tD(end)],x0,cm.odeOpts);
+    rhs=seedRHS(sp);
+    [t,x]=ode45(@(tt,xx)rhs(tt,xx,sp),[tD(1) tD(end)],x0,cm.odeOpts);
     % per-dwell settled classification
     dwellModes = strings(size(dwellInt,1),1);
     for i=1:size(dwellInt,1)
@@ -189,7 +192,7 @@ function runComScenarioBaseline(scen, cm, baseBsp, outDir)
     % animation + snapshot
     vfile=fullfile(outDir,[scen.name '.mp4']);
     animateModeTrajectory(t,x,struct('videoFile',vfile,'fps',cm.animFps,'title',scen.name, ...
-        'eventTimes',eventT,'seedParams',sp,'showSeedVels',false));
+        'eventTimes',eventT,'playbackSpeed',cm.animPlaybackSpeed,'seedParams',sp,'showSeedVels',false));
     exportgraphics(gcf, fullfile(outDir,[scen.name '_snapshot.png']),'Resolution',120);
     close(gcf);
 end

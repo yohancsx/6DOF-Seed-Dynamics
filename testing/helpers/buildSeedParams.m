@@ -11,11 +11,19 @@ function sp = buildSeedParams(bsp, cfg)
 %   cfg : suite config struct; uses .rhoFluid, .g, and the optional
 %         .enableSpanForce / .enableSpanGeomVelocity (both DEFAULT TRUE if
 %         absent) and .aero (coefficient overrides for computeAeroCoeffs).
+%         .shapeModel (optional): 'planar' (default) or 'shape3d'. 'shape3d'
+%         routes to setupSeedShape3D (needs physics3d/ on the path) and produces
+%         the non-planar seed contract; 'planar' uses setupSeedShapeAndMass.
 %
 % OUTPUT
-%   sp  : full seedParams struct accepted by seed6DOFODE.
+%   sp  : full seedParams struct accepted by seed6DOFODE (planar) or
+%         seed6DOFODE3D (shape3d).
 
-    sp = setupSeedShapeAndMass(struct('baseSeedParams', bsp));
+    if isfield(cfg, 'shapeModel') && strcmpi(char(cfg.shapeModel), 'shape3d')
+        sp = setupSeedShape3D(struct('baseSeedParams', bsp));
+    else
+        sp = setupSeedShapeAndMass(struct('baseSeedParams', bsp));
+    end
 
     sp.rhoFluid = cfg.rhoFluid;
     sp.g        = cfg.g;

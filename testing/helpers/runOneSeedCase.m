@@ -55,7 +55,8 @@ result.x0 = x0;
 % --- Integrate ------------------------------------------------------------
 odeOpts = odeset('RelTol', cfg.odeRelTol, 'AbsTol', cfg.odeAbsTol);
 try
-    [tOut, xOut] = ode45(@(t, x) seed6DOFODE(t, x, sp), cfg.tspan, x0, odeOpts);
+    rhs = seedRHS(sp);   % @seed6DOFODE (planar) or @seed6DOFODE3D (shape3d)
+    [tOut, xOut] = ode45(@(t, x) rhs(t, x, sp), cfg.tspan, x0, odeOpts);
     result.t = tOut;
     result.x = xOut;
     if any(~isfinite(xOut(:)))

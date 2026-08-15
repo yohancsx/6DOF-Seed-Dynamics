@@ -83,6 +83,17 @@ xgc     = strips.xgc_body;  % 1xM geometric-centre chordwise, body x (m)
 zgc     = strips.zgc_body;  % 1xM geometric-centre spanwise,  body z (m)
 numStrips = numel(z_body);
 
+% 3D strip geometry (shape3d): out-of-plane strip position + per-strip local
+% frame (chord/span axes in body coords, columns of the strip->body rotation).
+% A planar seed lacks these fields -> flat plate: y = 0 with the identity frame,
+% so the rendering below reduces to the original flat polyshape patch.
+if isfield(strips, 'ygc_body'); yGeo = strips.ygc_body; else; yGeo = zeros(1, numStrips); end
+hasFrames = isfield(strips, 'chordDir');
+if hasFrames
+    chordDir = strips.chordDir;   % 3xM strip chord axis, body coords
+    spanDir  = strips.spanDir;    % 3xM strip span  axis, body coords
+end
+
 % -------------------------------------------------------------------------
 % 2. HELPERS
 %    toWorld  : body frame -> world frame  (physics convention)
@@ -100,35 +111,46 @@ toWorld = @(bodyPts) rot * bodyPts + pos;            % body  -> world, 3xN
 toPlot  = @(w) [w(1,:); w(3,:); w(2,:)];            % world -> plot axes, 3xN
 
 % -------------------------------------------------------------------------
-% 3. WING SURFACE PATCH
-%    The polyshape lives in drawing frame (draw_x = body_z, draw_y = body_x,
-%    body_y = 0). Extrude a zero-thickness flat patch in body_y = 0.
+% 3. WING SURFACE
+%    shape3d: draw one quad PER STRIP, oriented by the strip's local frame, so
+%    twist / curvature show and a VARYING chord is handled per strip (each quad
+%    uses its own chord(i)). A flat plate gives coplanar quads that tile into the
+%    rectangle. planar: the original single flat patch from the polyshape.
 % -------------------------------------------------------------------------
 if opts.showPlate
-    % Extract polyshape boundary vertices (drawing frame)
-    [vx_draw, vy_draw] = boundary(wingPoly);   % spanwise, chordwise (drawing)
-
-    % Map to body frame: body_x = draw_y, body_y = 0, body_z = draw_x
-    bodyVerts = [vy_draw'; ...                  % body x (chordwise)
-                 zeros(1, numel(vx_draw));  ...  % body y = 0 (flat plate)
-                 vx_draw'];                      % body z (spanwise)
-
-    % Rotate and translate to world frame, then remap to plot axes
-    p = toPlot(toWorld(bodyVerts));   % 3 x nVerts, plot convention
-
-    patch(p(1,:), p(2,:), p(3,:), ...
-          opts.colorPlate, ...
-          'FaceAlpha', opts.plateAlpha, ...
-          'EdgeColor', 'none');
-    hold on;
+    if hasFrames
+        for i = 1 : numStrips
+            ci  = chord(i) / 2;   di = dz(i) / 2;
+            ctr = [xgc(i); yGeo(i); zgc(i)];        % strip centre, body coords
+            cd  = chordDir(:, i); sd = spanDir(:, i);
+            quad = [ctr + ci*cd + di*sd, ...        % 3x4 corners in the
+                    ctr + ci*cd - di*sd, ...        % chord-span plane of the
+                    ctr - ci*cd - di*sd, ...        % strip's own frame
+                    ctr - ci*cd + di*sd];
+            p = toPlot(toWorld(quad));
+            patch(p(1,:), p(2,:), p(3,:), opts.colorPlate, ...
+                  'FaceAlpha', opts.plateAlpha, 'EdgeColor', opts.colorEdge, 'LineWidth', 0.5);
+            hold on;
+        end
+    else
+        % Planar flat plate: single patch from the polyshape boundary (body y=0).
+        [vx_draw, vy_draw] = boundary(wingPoly);   % spanwise, chordwise (drawing)
+        bodyVerts = [vy_draw'; ...                  % body x (chordwise)
+                     zeros(1, numel(vx_draw)); ...   % body y = 0 (flat plate)
+                     vx_draw'];                      % body z (spanwise)
+        p = toPlot(toWorld(bodyVerts));
+        patch(p(1,:), p(2,:), p(3,:), opts.colorPlate, ...
+              'FaceAlpha', opts.plateAlpha, 'EdgeColor', 'none');
+        hold on;
+    end
 end
 
 % -------------------------------------------------------------------------
-% 4. STRIP PLATE BOUNDARY EDGES
-%    Draw a chordwise line at each strip boundary (left edge of each strip,
-%    plus the far right edge of the last strip).
+% 4. STRIP PLATE BOUNDARY EDGES  (planar only)
+%    Draw a chordwise line at each strip boundary. For shape3d the per-strip
+%    quads above already carry their own edges, so this is skipped there.
 % -------------------------------------------------------------------------
-if opts.showPlateEdges
+if opts.showPlateEdges && ~hasFrames
     % Collect all unique boundary z values (body z)
     zEdges = [z_body - dz/2,  z_body(end) + dz(end)/2];   % M+1 edges
 
@@ -163,7 +185,7 @@ end
 if opts.showPlateCom
     for i = 1 : numStrips
         % Strip centroid: actual geometric centre (chordwise xgc, spanwise z_body).
-        centroid_body = [xgc(i); 0; z_body(i)];
+        centroid_body = [xgc(i); yGeo(i); z_body(i)];
         p = toPlot(toWorld(centroid_body));
         plot3(p(1), p(2), p(3), ...
               'o', 'Color', opts.colorPlateCom, ...
@@ -178,7 +200,7 @@ end
 % -------------------------------------------------------------------------
 if opts.showGeoCenter
     for i = 1 : numStrips
-        geoCenter_body = [xgc(i); 0; zgc(i)];
+        geoCenter_body = [xgc(i); yGeo(i); zgc(i)];
         p = toPlot(toWorld(geoCenter_body));
         plot3(p(1), p(2), p(3), ...
               'd', 'Color', opts.colorGeoCenter, ...

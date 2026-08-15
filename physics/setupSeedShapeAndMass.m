@@ -351,6 +351,12 @@ seedParamsFull.enableSpanCOPMigration      = true;   % false -> span torque at t
 seedParamsFull.enableSpanTorqueAttenuation = false;  % not needed (Tx + weak span force handle stability)
 seedParamsFull.enableTxDamping             = true;   % raises the roll parametric threshold
 
+% --- Model tag (seed-model contract; see validateSeedParams) -------------
+% This is the PLANAR flat-plate builder: strips lie in the body x-z plane
+% (y = 0) with the aerodynamic normal along body y. The full-3D shape builder
+% tags its output 'shape3d' and adds the per-strip position/orientation fields.
+seedParamsFull.model = 'planar';
+
 % --- Pass through original sub-struct ------------------------------------
 seedParamsFull.baseSeedParams = bsp;
 

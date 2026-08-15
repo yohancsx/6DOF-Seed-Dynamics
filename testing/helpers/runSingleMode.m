@@ -27,7 +27,8 @@ function result = runSingleMode(name, nutPos, q0, omega0, cfg, baseBsp)
     % --- Integrate --------------------------------------------------------
     x0      = [zeros(3,1); q0(:); zeros(3,1); omega0(:)];
     odeOpts = odeset('RelTol', cfg.odeRelTol, 'AbsTol', cfg.odeAbsTol);
-    [t, x]  = ode45(@(tt,xx) seed6DOFODE(tt, xx, sp), cfg.tspan, x0, odeOpts);
+    rhs     = seedRHS(sp);   % @seed6DOFODE (planar) or @seed6DOFODE3D (shape3d)
+    [t, x]  = ode45(@(tt,xx) rhs(tt, xx, sp), cfg.tspan, x0, odeOpts);
 
     % --- Metrics + (reference) classification -----------------------------
     result.name       = name;

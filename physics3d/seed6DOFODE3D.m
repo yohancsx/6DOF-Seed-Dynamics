@@ -1,11 +1,30 @@
-function [xdot, intermediates] = seed6DOFODE(t, x, seedParams)
-% SEED6DOFODE  Right-hand side of the 3D seed dynamics ODE (for ode45).
+function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
+% SEED6DOFODE3D  Right-hand side of the NON-PLANAR (3D-shape) seed dynamics ODE.
 %
-% Strip-theory quasi-steady aerodynamics extending the 2D Andersen-Pesavento-Wang
-% model to 6-DOF (13-state) flight. Computes the state derivative; optionally
-% returns per-strip intermediate quantities for plotting/debugging (ode45 ignores
-% the second output during integration, so re-call this on the saved states in
-% post-processing to recover them).
+% Extension of the planar seed6DOFODE to a seed whose strips are NOT confined to
+% the body x-z plane: each strip carries a 3D geometric-centre position AND its
+% own orthonormal local frame (chord/normal/span directions) in body coordinates,
+% so twist / camber / dihedral can be represented. The strip aerodynamics are the
+% SAME 2D coefficient laws as the planar model, evaluated in each strip's local
+% (chord, normal) plane and then rotated back to the body frame; the net body
+% force/torque go to the shared rigid-body core (rigidBody6DOF), exactly as in the
+% planar RHS.
+%
+% SCAFFOLD STATUS: this reduces EXACTLY to the planar model when every strip's
+% frame is identity and ygc = 0 (i.e. a flat plate) -- the flat-equivalence
+% regression. Twist/curvature are introduced by the builder (setupSeedShape3D)
+% populating non-identity frames; the whole-seed span-force block below is planar
+% heritage (valid only for a flat seed) and should be switched OFF
+% (enableSpanForce = false) for genuinely curved seeds, which produce their
+% spanwise force from geometry instead.
+%
+% Requires the 'shape3d' seedParams contract (see validateSeedParams): the planar
+% strip fields PLUS strips.ygc_body and strips.chordDir/normalDir/spanDir. If a
+% planar seed (no frames) is passed, identity frames + y=0 are assumed, so this
+% function also reproduces the planar model on a planar seed.
+%
+% Optionally returns per-strip intermediate quantities for plotting/debugging
+% (ode45 ignores the second output during integration).
 %
 % STATE  x = [ r(3) ; q(4) ; v(3) ; omega(3) ]  (13x1)
 %   r     : CoM position, inertial frame (m)
@@ -69,6 +88,27 @@ liftMult = seedParams.strips.liftMult;    % 1xM per-strip translational-lift mul
 dragMult = seedParams.strips.dragMult;    % 1xM per-strip drag multipliers
 numStrips = numel(chord);
 
+% --- 3D strip geometry: out-of-plane position + per-strip local frame -----
+% ygc is the strip centre's body-y (0 for a flat plate). chordDir/normalDir/
+% spanDir are the strip's local axes expressed in BODY coords (columns of the
+% strip->body rotation). A flat plate has ygc=0 and the identity frame; a planar
+% seedParams that lacks these fields is treated as exactly that, so this RHS
+% reproduces the planar model on a planar seed.
+if isfield(seedParams.strips, 'ygc_body')
+    yGeo = seedParams.strips.ygc_body;
+else
+    yGeo = zeros(1, numStrips);
+end
+if isfield(seedParams.strips, 'chordDir')
+    chordDir  = seedParams.strips.chordDir;    % 3xM
+    normalDir = seedParams.strips.normalDir;   % 3xM
+    spanDir   = seedParams.strips.spanDir;     % 3xM
+else
+    chordDir  = repmat([1;0;0], 1, numStrips);
+    normalDir = repmat([0;1;0], 1, numStrips);
+    spanDir   = repmat([0;0;1], 1, numStrips);
+end
+
 F_aero_body = [0; 0; 0];
 tau_body    = [0; 0; 0];
 
@@ -80,7 +120,9 @@ CD_all    = zeros(1, numStrips);
 Fbody_all = zeros(3, numStrips);
 Tbody_all = zeros(3, numStrips);
 
-omega_z = omega(3);   % only spanwise spin drives the 2D rotational lift/damping
+% (The 2D rotational lift/damping is driven by spin about each strip's LOCAL span
+% axis; that is computed per strip inside the loop as spanDir(:,i)'*omega. For a
+% flat plate spanDir = [0;0;1], recovering the planar omega_z = omega(3).)
 
 % =========================================================================
 % 3a. WHOLE-SEED SPIN-DAMPING ABOUT THE CHORDWISE AND NORMAL AXES
@@ -287,38 +329,54 @@ end
 
 for i = 1 : numStrips
 
-    % --- strip velocity (body frame); discard spanwise component for the 2D aero
-    vStrip  = stripVel(:, i);
-    vChord  = vStrip(1);
-    vNormal = vStrip(2);
+    % --- strip local frame (columns of strip->body rotation) and 3D centre
+    cDir = chordDir(:, i);   nDir = normalDir(:, i);   sDir = spanDir(:, i);
+    pGeo = [xGeo(i); yGeo(i); zGeo(i)];          % strip geometric centre, body coords
 
-    % --- angle of attack
-    alpha = computeAngleOfAttack(vStrip);
+    % --- strip velocity, projected into the strip's LOCAL (chord, normal) plane.
+    % vChord/vNormal are the components the 2D section sees; the local-span
+    % component is discarded (as the planar model discards body-z). For a flat
+    % plate cDir=[1;0;0], nDir=[0;1;0] -> vChord=vStrip(1), vNormal=vStrip(2).
+    vStrip  = stripVel(:, i);
+    vChord  = cDir.' * vStrip;
+    vNormal = nDir.' * vStrip;
+
+    % --- angle of attack in the local plane (same law, projected components)
+    alpha = computeAngleOfAttack([vChord; vNormal; 0]);
 
     % --- aerodynamic coefficients at this angle of attack
     coeffs = computeAeroCoeffs(alpha, aeroParams);
 
-    % --- dynamic centre of pressure (chordwise), and the geometric-centre reference
-    xcp         = computeStripCoP(coeffs.l_cp_frac, chord(i), xGeo(i));
-    r_cp        = [xcp;     0; zGeo(i)] - mp.c;   % CoP relative to CoM (arm for lift+drag)
-    r_geoCenter = [xGeo(i); 0; zGeo(i)] - mp.c;   % geometric centre rel. to CoM (arm for rot. lift)
+    % --- spin about the strip's LOCAL span axis drives the 2D rotational lift/damp
+    omega_localSpan = sDir.' * omega;
 
-    % --- forces (body frame): translational lift+drag, and rotational lift
-    % Per-strip liftMult/dragMult scale this strip's translational lift and drag
-    % only (not the rotational lift).
-    [F_transl, F_rotLift] = computeStripForces(vChord, vNormal, chord(i), dz(i), ...
-                                               omega_z, coeffs, rhoFluid, ...
+    % --- forces in the strip's LOCAL frame ([chord; normal; 0]), then rotate to
+    % body via the strip frame R_strip = [cDir nDir sDir]. Per-strip liftMult/
+    % dragMult scale translational lift and drag only (not the rotational lift).
+    [F_transl_L, F_rotLift_L] = computeStripForces(vChord, vNormal, chord(i), dz(i), ...
+                                               omega_localSpan, coeffs, rhoFluid, ...
                                                liftMult(i), dragMult(i));
+    F_transl  = cDir*F_transl_L(1)  + nDir*F_transl_L(2)  + sDir*F_transl_L(3);
+    F_rotLift = cDir*F_rotLift_L(1) + nDir*F_rotLift_L(2) + sDir*F_rotLift_L(3);
     dF = F_transl + F_rotLift;
 
-    % --- torques about the CoM: each force at its own chordwise point
+    % --- centre of pressure: offset l_cp_frac*chord along the LOCAL chord axis
+    % from the strip centre. (xcp is the equivalent chordwise coordinate, kept
+    % for the intermediates.)
+    cpOffset    = coeffs.l_cp_frac * chord(i);
+    xcp         = xGeo(i) + cpOffset;                 % = computeStripCoP(...)
+    r_cp        = (pGeo + cpOffset*cDir) - mp.c;       % CoP relative to CoM
+    r_geoCenter = pGeo - mp.c;                         % geometric centre rel. to CoM
+
+    % --- torques about the CoM: each force at its own point
     tau_transl  = cross(r_cp,        F_transl);   % 2D Tt   (at CoP)
     tau_rotLift = cross(r_geoCenter, F_rotLift);  % 2D Tcr  (at geometric centre / mid-chord)
 
-    % --- extra torque: nonlinear spin damping about the spanwise axis (2D Tr)
-    comOffsetFromGeoCenter = mp.c(1) - xGeo(i);   % CoM chordwise offset from this strip's geometric centre
-    Tr        = stripSpinDamping(chord(i), dz(i), omega_z, comOffsetFromGeoCenter, coeffs.CD_rot, rhoFluid);
-    tau_spin  = [0; 0; Tr];
+    % --- extra torque: nonlinear spin damping about the LOCAL span axis (2D Tr).
+    % CoM offset measured along the local chord from the strip centre.
+    comOffsetFromGeoCenter = cDir.' * (mp.c - pGeo);
+    Tr        = stripSpinDamping(chord(i), dz(i), omega_localSpan, comOffsetFromGeoCenter, coeffs.CD_rot, rhoFluid);
+    tau_spin  = Tr * sDir;                        % damping about the local span axis
 
     dTau = tau_transl + tau_rotLift + tau_spin;
 
