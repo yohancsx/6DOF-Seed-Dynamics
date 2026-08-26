@@ -57,7 +57,14 @@ toPlot = @(w) [w(1,:); w(3,:); w(2,:)];
 xgc = seedParams.strips.xgc_body;   % 1xM chordwise geometric centre, body x (m)
 zgc = seedParams.strips.zgc_body;   % 1xM spanwise  geometric centre, body z (m)
 numStrips = numel(xgc);
-geoCenterBody = [xgc; zeros(1, numStrips); zgc];   % 3xM, body y = 0 (flat plate)
+% Out-of-plane (body y) strip position: 0 for a flat/twisted plate, non-zero for
+% a spanwise-curved seed (absent -> 0, so planar/twist are unchanged).
+if isfield(seedParams.strips, 'ygc_body')
+    ygc = seedParams.strips.ygc_body;
+else
+    ygc = zeros(1, numStrips);
+end
+geoCenterBody = [xgc; ygc; zgc];    % 3xM strip geometric centres, body frame
 
 % CoM in body-datum coords (used as the base point in 'com' mode)
 comBody = seedParams.massParams.com_t(:, opts.tIndex);   % 3x1

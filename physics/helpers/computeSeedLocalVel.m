@@ -80,6 +80,15 @@ xgc = seedParams.strips.xgc_body;   % 1xM chordwise geometric centre, body x (m)
 zgc = seedParams.strips.zgc_body;   % 1xM spanwise  geometric centre, body z (m)
 numStrips = numel(xgc);
 
+% Out-of-plane (body y) strip position: 0 for a flat/twisted plate (strips stay
+% in the x-z plane), non-zero for a spanwise-CURVED seed. Absent -> 0, so planar
+% and twist seeds are unchanged and only curvature uses the 3D lever arm below.
+if isfield(seedParams.strips, 'ygc_body')
+    ygc = seedParams.strips.ygc_body;   % 1xM out-of-plane geometric centre, body y (m)
+else
+    ygc = zeros(1, numStrips);
+end
+
 % CoM location in BODY-DATUM coords, supplied by the caller for this frame.
 comPos_body = currComPos(:);   % 3x1, body-datum coords (m)
 
@@ -93,8 +102,9 @@ projectedWind = zeros(3, numStrips);   % wind with spanwise (z) component remove
 for i = 1 : numStrips
 
     % Geometric-centre position relative to the CoM, body frame (the lever arm
-    % r_{P/CoM} in eqn (2)). Body y = 0 because the plate is flat (body x-z plane).
-    r_gc_body = [xgc(i); 0; zgc(i)] - comPos_body;
+    % r_{P/CoM} in eqn (2)). Body y is 0 for a flat/twisted plate and the strip's
+    % out-of-plane offset for a spanwise-curved seed.
+    r_gc_body = [xgc(i); ygc(i); zgc(i)] - comPos_body;
 
     % Total velocity of the geometric centre in the body frame:
     %   v_P^body = comVel_body + omega^body x r_{P/CoM}^body   (eqn (2))
