@@ -327,6 +327,10 @@ seedParamsFull = seedParamsIn;   % carry through all original inputs
 seedParamsFull.strips.z_body   = strip_z_body;   % 1xM, body-z centres (m)
 seedParamsFull.strips.chord    = strip_chord;    % 1xM, chord lengths (m)
 seedParamsFull.strips.dz       = strip_dz;       % 1xM, spanwise widths (m)
+seedParamsFull.strips.area     = plate_area;     % 1xM, ACTUAL clipped plate area (m^2).
+                                                  % Exposed so a 3D builder can form
+                                                  % per-strip masses that conserve the
+                                                  % total wing mass on tapered planforms.
 seedParamsFull.strips.xgc_body = strip_xgc;      % 1xM, geometric-centre chordwise body x (m)
 seedParamsFull.strips.zgc_body = strip_zgc;      % 1xM, geometric-centre spanwise  body z (m)
 seedParamsFull.strips.liftMult = strip_liftMult; % 1xM, translational-lift multipliers
@@ -350,6 +354,11 @@ seedParamsFull.enableSpanGeomVelocity      = false;  % no measurable effect on a
 seedParamsFull.enableSpanCOPMigration      = true;   % false -> span torque at the geo centre
 seedParamsFull.enableSpanTorqueAttenuation = false;  % not needed (Tx + weak span force handle stability)
 seedParamsFull.enableTxDamping             = true;   % raises the roll parametric threshold
+seedParamsFull.enableAddedMass3D           = false;  % OFF: use the flat-plate added-mass
+                                                      % form. TRUE builds the full per-strip
+                                                      % tensor from the strip normals -- only
+                                                      % meaningful for a non-planar (shape3d)
+                                                      % seed; see getAddedMass.
 
 % --- Model tag (seed-model contract; see validateSeedParams) -------------
 % This is the PLANAR flat-plate builder: strips lie in the body x-z plane

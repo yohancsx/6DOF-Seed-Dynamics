@@ -13,11 +13,14 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
 % curvature and retags 'shape3d'. With neither, the frames are identity and the
 % seed is a strict superset of the planar seed (the flat-equivalence regression).
 %
-% IMPORTANT (mass/inertia not yet curved -- step 2): the mass properties come
-% straight from setupSeedShapeAndMass (a FLAT plate), so for a CURVED seed the
-% CoM and inertia are still the flat-plate values and its DYNAMICS are NOT
-% physically correct yet. Its geometry, per-strip velocity, and rendering ARE
-% correct. Twist keeps strips at y=0, so a twisted seed's mass is exact.
+% MASS / INERTIA: twist keeps every strip centre at y=0 and only re-orients a
+% thin plate about its own mid-chord, so the flat-plate mass properties stay
+% exact and are used unchanged. CURVATURE moves mass off the x-z plane, so the
+% CoM and inertia are recomputed from the 3D strip positions + orientations
+% (see curvedMassProperties below): the wing centroid picks up a y component and
+% each strip's local inertia is rotated into its own frame before the
+% parallel-axis sum. Added mass is still the flat-plate form (a documented
+% approximation, gentle-curvature only, pending its own generalisation).
 %
 % TWIST INPUT: baseSeedParams.twist = scalar (uniform pitch, rad) / length-M
 % vector / handle @(z) (pitch vs spanwise position) -- e.g. anti-symmetric
@@ -63,12 +66,8 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     % arc-length segments, so they are UNCHANGED by bending. Absent -> flat
     % (phi=0, y=0, positions unchanged), so twist-only and planar stay bit-identical.
     %
-    % NOTE (step 2 pending): the mass properties (com_t, I_G_t) are still the
-    % FLAT-plate values from setupSeedShapeAndMass. Curvature-correct mass/inertia
-    % (the wing-centroid y shift + rotated local inertia) is NOT yet implemented,
-    % so a CURVED seed's DYNAMICS are not physically correct until then; its
-    % geometry, per-strip velocity, and rendering ARE correct.
-    if isfield(bsp, 'curvature') && ~isempty(bsp.curvature)
+    hasCurvature = isfield(bsp, 'curvature') && ~isempty(bsp.curvature);
+    if hasCurvature
         [phi, zCurve, yCurve] = curveFromProfile(bsp, sArc, M);
         seedParamsFull.strips.zgc_body = zCurve;    % physical spanwise position (body z)
         seedParamsFull.strips.z_body   = zCurve;
@@ -89,8 +88,109 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     seedParamsFull.strips.twist     = theta;     % record profiles (rad)
     seedParamsFull.strips.dihedral  = phi;
 
+    % --- MASS / INERTIA ----------------------------------------------------
+    % Twist keeps every strip centre at y = 0 and only re-orients a thin plate
+    % about its own mid-chord, so the flat-plate mass properties from
+    % setupSeedShapeAndMass remain exact -- leave them alone (this is also what
+    % keeps flat/twist bit-identical to the planar model). CURVATURE genuinely
+    % moves mass off the x-z plane, so recompute the CoM and inertia from the 3D
+    % strip positions + orientations.
+    if hasCurvature
+        seedParamsFull.massParams = curvedMassProperties(seedParamsFull, bsp);
+
+        % --- Span-force hack OFF by default for a CURVED seed --------------
+        % computeSpanForce is planar heritage: it fakes the body-z force that a
+        % FLAT seed's strips can never produce (their normals are all body-y).
+        % Once the strips are tilted out of plane they generate that spanwise
+        % force from geometry, so leaving the hack on DOUBLE-COUNTS it. Twist
+        % alone does not tilt the normals out of the x-y plane, so it keeps the
+        % planar default. Override via cfg.enableSpanForce if you want to A/B it.
+        seedParamsFull.enableSpanForce = false;
+    end
+
     % --- Retag the model (setupSeedShapeAndMass stamped it 'planar') --------
     seedParamsFull.model = 'shape3d';
+end
+
+
+% =========================================================================
+% LOCAL: 3D mass properties for a seed whose strips leave the body x-z plane
+% =========================================================================
+function mp = curvedMassProperties(sp, bsp)
+% Lumps each strip as a thin uniform rectangle (mass m_i = rho_A*A_i, chord
+% extent c_i, span-width w_i) sitting at its 3D centroid r_i with orientation
+% R_i = [chordDir normalDir spanDir], and adds the nut as a point mass:
+%
+%   CoM      r_G = ( sum_i m_i r_i + m_n r_n ) / M
+%   local    I_i' = (1/12) m_i * diag( w_i^2, c_i^2 + w_i^2, c_i^2 )
+%                   [strip axes: chord, normal, span; I_22' by the
+%                    perpendicular-axis theorem for a lamina]
+%   rotate   I_i^loc = R_i * I_i' * R_i'
+%   Steiner  I_G = sum_i [ I_i^loc + m_i( |d_i|^2 I3 - d_i d_i' ) ]
+%                    + m_n( |d_n|^2 I3 - d_n d_n' ),   d = r - r_G
+%
+% With R_i = I and y_i = 0 this collapses term-for-term onto the planar
+% builder's flat-plate computation. I_G_dot uses the same finite-difference
+% scheme as the planar builder (only r_G and the nut term move in time; the
+% shape itself is fixed in the body frame).
+
+    s    = sp.strips;
+    rhoA = bsp.seedDensity;              % areal density (kg/m^2)
+    tS   = bsp.tSamples;                 % time samples (as supplied)
+    numT = numel(tS);
+    M    = numel(s.chord);
+
+    % --- Per-strip mass, centroid, and body-frame local inertia ------------
+    m_i = rhoA * s.area(:).';                        % 1xM (actual clipped areas)
+    r_i = [s.xgc_body; s.ygc_body; s.zgc_body];      % 3xM strip centroids
+    c   = s.chord(:).';                              % chord extent per strip
+    w   = s.dz(:).';                                 % span-width (arc length) per strip
+
+    Iloc = zeros(3, 3, M);
+    for i = 1 : M
+        Ri = [s.chordDir(:,i), s.normalDir(:,i), s.spanDir(:,i)];   % strip -> body
+        Ip = (1/12) * m_i(i) * diag([ w(i)^2, c(i)^2 + w(i)^2, c(i)^2 ]);
+        Iloc(:,:,i) = Ri * Ip * Ri.';
+    end
+
+    m_w    = sum(m_i);                   % wing mass
+    S_wing = r_i * m_i(:);               % 3x1 first moment of the wing, sum_i m_i r_i
+
+    % --- CoM + inertia at each mass time sample (the nut may move) ---------
+    com_t = zeros(3, numT);
+    I_G_t = zeros(3, 3, numT);
+    for k = 1 : numT
+        m_n = bsp.nutMass_t(k);
+        r_n = bsp.nutPos_t(:, k);
+        rG  = (S_wing + m_n * r_n) / (m_w + m_n);
+        com_t(:, k) = rG;
+
+        Ik = zeros(3);
+        for i = 1 : M
+            d  = r_i(:, i) - rG;
+            Ik = Ik + Iloc(:,:,i) + m_i(i) * ((d.' * d) * eye(3) - d * d.');
+        end
+        dn = r_n - rG;
+        Ik = Ik + m_n * ((dn.' * dn) * eye(3) - dn * dn.');
+        I_G_t(:, :, k) = Ik;
+    end
+
+    % --- d/dt of I_G: central differences inside, one-sided at the ends ----
+    I_G_dot_t = zeros(3, 3, numT);
+    if numT > 1
+        for k = 1 : numT
+            if k == 1
+                I_G_dot_t(:,:,k) = (I_G_t(:,:,2) - I_G_t(:,:,1)) / (tS(2) - tS(1));
+            elseif k == numT
+                I_G_dot_t(:,:,k) = (I_G_t(:,:,end) - I_G_t(:,:,end-1)) / (tS(end) - tS(end-1));
+            else
+                I_G_dot_t(:,:,k) = (I_G_t(:,:,k+1) - I_G_t(:,:,k-1)) / (tS(k+1) - tS(k-1));
+            end
+        end
+    end
+
+    mp = struct('tSamples', tS, 'com_t', com_t, 'I_G_t', I_G_t, ...
+                'I_G_dot_t', I_G_dot_t, 'M_total', m_w + bsp.nutMass_t(1));
 end
 
 

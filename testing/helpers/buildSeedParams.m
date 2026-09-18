@@ -28,37 +28,20 @@ function sp = buildSeedParams(bsp, cfg)
     sp.rhoFluid = cfg.rhoFluid;
     sp.g        = cfg.g;
 
-    % Physics switches: fall back to the "FULL-minus-geomVelocity" default
-    % (see setupSeedShapeAndMass) when cfg does not specify them.
-    if isfield(cfg, 'enableSpanForce')
-        sp.enableSpanForce = cfg.enableSpanForce;
-    else
-        sp.enableSpanForce = true;
-    end
-    if isfield(cfg, 'enableSpanTorque')
-        sp.enableSpanTorque = cfg.enableSpanTorque;
-    else
-        sp.enableSpanTorque = true;
-    end
-    if isfield(cfg, 'enableSpanGeomVelocity')
-        sp.enableSpanGeomVelocity = cfg.enableSpanGeomVelocity;
-    else
-        sp.enableSpanGeomVelocity = false;   % no measurable effect on any mode
-    end
-    if isfield(cfg, 'enableSpanCOPMigration')
-        sp.enableSpanCOPMigration = cfg.enableSpanCOPMigration;
-    else
-        sp.enableSpanCOPMigration = true;
-    end
-    if isfield(cfg, 'enableSpanTorqueAttenuation')
-        sp.enableSpanTorqueAttenuation = cfg.enableSpanTorqueAttenuation;
-    else
-        sp.enableSpanTorqueAttenuation = false;
-    end
-    if isfield(cfg, 'enableTxDamping')
-        sp.enableTxDamping = cfg.enableTxDamping;
-    else
-        sp.enableTxDamping = true;
+    % Physics switches: the BUILDER owns the defaults -- setupSeedShapeAndMass
+    % stamps the "FULL-minus-geomVelocity" config, and setupSeedShape3D adjusts it
+    % for the shape (e.g. it turns the planar span-force hack OFF for a curved
+    % seed, where the tilted strips already supply that force from geometry). So
+    % only apply EXPLICIT cfg overrides here; never silently clobber a
+    % builder-chosen default. (For a planar seed with no overrides this leaves
+    % exactly the same values this function used to hardcode.)
+    switches = {'enableSpanForce', 'enableSpanTorque', 'enableSpanGeomVelocity', ...
+                'enableSpanCOPMigration', 'enableSpanTorqueAttenuation', ...
+                'enableTxDamping', 'enableAddedMass3D'};
+    for k = 1:numel(switches)
+        if isfield(cfg, switches{k})
+            sp.(switches{k}) = cfg.(switches{k});
+        end
     end
 
     % Aero coefficient overrides are optional; if absent, computeAeroCoeffs uses

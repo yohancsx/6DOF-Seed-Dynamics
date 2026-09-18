@@ -81,30 +81,64 @@ m2_strip = pi * rhoFluid .* (chord/2).^2 .* dz;        % Mx1 (kg)   [2D line 94]
 ia_strip = pi * rhoFluid .* chord.^4 .* dz / 128;      % Mx1 (kg·m^2) [2D line 96 base]
 
 % -------------------------------------------------------------------------
-% 2. TRANSLATIONAL ADDED-MASS BLOCK
-%    Only the normal (body y) direction entrains fluid; chord (x) and span (z)
-%    are edge-on/in-plane -> 0 (the 2D m1 = 0, extended to span).
+% 2-3. ADDED-MASS BLOCKS
+%    Two forms: the flat-plate default (every strip normal is body y), and the
+%    general per-strip form for a NON-PLANAR seed, enabled by the switch
+%    seedParams.enableAddedMass3D (and only when the strips carry local frames).
 % -------------------------------------------------------------------------
-M_normal = sum(m2_strip);              % total broadside added mass (kg)
-A_trans  = diag([0, M_normal, 0]);
+use3D = isfield(seedParams, 'enableAddedMass3D') && seedParams.enableAddedMass3D ...
+        && isfield(seedParams.strips, 'normalDir');
 
-% -------------------------------------------------------------------------
-% 3. ROTATIONAL ADDED-INERTIA BLOCK (about the CoM)
-%    Lever arms of each strip centroid relative to the CoM:
-% -------------------------------------------------------------------------
-x_s = xGeo - comPos_body(1);           % chordwise offset from CoM (body x)
-z_s = zGeo - comPos_body(3);           % spanwise  offset from CoM (body z)
+if use3D
+    % --- General (non-planar) form ---------------------------------------
+    % Each strip entrains fluid broadside to its OWN normal n_i, and carries its
+    % 2D sectional rotational added inertia about its OWN span axis s_i:
+    %     A_trans = sum_i  m2_i * (n_i n_i')
+    %     A_rot   = sum_i [ m2_i * (d_i x n_i)(d_i x n_i)'  +  ia_i * (s_i s_i') ]
+    % The rotational term is the normal velocity a body rotation induces at strip
+    % i: n_i . (w x d_i) = w . (d_i x n_i), so the entrained kinetic energy
+    % (1/2) m2_i [n_i.(w x d_i)]^2 = (1/2) w' [ m2_i (d_i x n_i)(d_i x n_i)' ] w.
+    % For a flat plate (n_i = [0;1;0], s_i = [0;0;1]) this reduces EXACTLY to the
+    % planar expressions in the else-branch below.
+    nDir = seedParams.strips.normalDir;      % 3xM strip normals, body coords
+    sDir = seedParams.strips.spanDir;        % 3xM strip span axes, body coords
+    if isfield(seedParams.strips, 'ygc_body')
+        yGeo = seedParams.strips.ygc_body(:);
+    else
+        yGeo = zeros(numel(chord), 1);
+    end
 
-% Diagonal terms:
-I_xx = sum( m2_strip .* z_s.^2 );                 % spin about chord axis  [NEW 3D]
-I_zz = sum( ia_strip + m2_strip .* x_s.^2 );      % spin about span axis   [2D Ia]
-I_yy = 0;                                         % spin about normal axis ~0 [NEW 3D]
+    A_trans = zeros(3);
+    A_rot   = zeros(3);
+    for i = 1 : numel(chord)
+        n = nDir(:, i);   s = sDir(:, i);
+        d = [xGeo(i); yGeo(i); zGeo(i)] - comPos_body;   % strip centre rel. CoM
+        r = cross(d, n);
+        A_trans = A_trans + m2_strip(i) * (n * n.');
+        A_rot   = A_rot   + m2_strip(i) * (r * r.') + ia_strip(i) * (s * s.');
+    end
+else
+    % --- Flat-plate form (planar default) ---------------------------------
+    % Only the normal (body y) direction entrains fluid; chord (x) and span (z)
+    % are edge-on/in-plane -> 0 (the 2D m1 = 0, extended to span).
+    M_normal = sum(m2_strip);              % total broadside added mass (kg)
+    A_trans  = diag([0, M_normal, 0]);
 
-% Off-diagonal x-z coupling (product of inertia of the normal added mass):
-I_xz = -sum( m2_strip .* x_s .* z_s );            % vanishes if CoM-centered/symmetric
+    % Lever arms of each strip centroid relative to the CoM:
+    x_s = xGeo - comPos_body(1);           % chordwise offset from CoM (body x)
+    z_s = zGeo - comPos_body(3);           % spanwise  offset from CoM (body z)
 
-A_rot = [ I_xx,   0,    I_xz ;
-          0,      I_yy, 0    ;
-          I_xz,   0,    I_zz ];
+    % Diagonal terms:
+    I_xx = sum( m2_strip .* z_s.^2 );                 % spin about chord axis  [NEW 3D]
+    I_zz = sum( ia_strip + m2_strip .* x_s.^2 );      % spin about span axis   [2D Ia]
+    I_yy = 0;                                         % spin about normal axis ~0 [NEW 3D]
+
+    % Off-diagonal x-z coupling (product of inertia of the normal added mass):
+    I_xz = -sum( m2_strip .* x_s .* z_s );            % vanishes if CoM-centered/symmetric
+
+    A_rot = [ I_xx,   0,    I_xz ;
+              0,      I_yy, 0    ;
+              I_xz,   0,    I_zz ];
+end
 
 end

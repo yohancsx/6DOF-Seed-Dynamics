@@ -49,10 +49,12 @@ Read that for the math; this README is orientation.
 
 ```
 6DOF Seed Dynamics/
-├── Seed_Dynamics_ODE_Test.mlx     ← START HERE: live script that runs a simple drop
-├── physics/                       core dynamics
-│   ├── seed6DOFODE.m              main ODE right-hand side (the integrator function)
-│   ├── setupSeedShapeAndMass.m    builds the seed: strip geometry, CoM(t), inertia(t)
+├── Seed_Dynamics_ODE_Test.m       ← START HERE: script that runs a simple drop
+├── physics/                       planar model + the shared, shape-agnostic core
+│   ├── seed6DOFODE.m              planar ODE right-hand side (the integrator function)
+│   ├── rigidBody6DOF.m            SHARED 6-DOF core: EOM + quaternion kinematics
+│   ├── setupSeedShapeAndMass.m    builds the planar seed: strips, CoM(t), inertia(t)
+│   ├── validateSeedParams.m       the seed-model contract ('planar' | 'shape3d')
 │   ├── translationDynamics.m      CoM linear acceleration (inertial frame)
 │   ├── rotationDynamics.m         angular acceleration (modified Euler, body frame)
 │   ├── aero/                      aerodynamics
@@ -64,8 +66,17 @@ Read that for the math; this README is orientation.
 │   │   └── ...
 │   ├── mass/                      getMassProperties.m, getAddedMass.m
 │   └── helpers/                   quaternion math, per-strip velocity, Euler conversion
-├── visualization/                 visualizeSeedTrajectory.m, animateSeed.m, ...
-├── testing/                       test-suite scripts (see below) + testing/helpers/
+├── physics3d/                     NON-PLANAR model (twist / curvature) — see the roadmap
+│   ├── setupSeedShape3D.m         3D builder: twist θ(s), curvature φ(s), 3D mass/inertia
+│   └── seed6DOFODE3D.m            3D right-hand side (per-strip local frames)
+├── visualization/                 visualizeSeedTrajectory.m, animateModeTrajectory.m, ...
+├── testing/
+│   ├── helpers/                   shared machinery (buildSeedParams, seedRHS, classifier, …)
+│   ├── planar/                    planar suites (+ planar/inputs/ reference configs)
+│   ├── shape3d/                   twist suite + the 3D regressions
+│   ├── baselines/                 generateModelBaseline.m (snapshot tooling)
+│   └── archive/                   retired scripts
+├── model_test_results/            baseline snapshots (outputs are git-ignored)
 ├── derivations/                   seed6DOF_physics.tex   (the physics writeup)
 └── Olivia Code/                   minimal_imp_Commented.m   (the 2D reference model)
 ```
@@ -80,6 +91,8 @@ Read that for the math; this README is orientation.
 | **[`physics/seed6DOFODE.m`](physics/seed6DOFODE.m)** | The **ODE right-hand side** passed to `ode45`. Orchestrates mass properties, per-strip aero, whole-seed terms, and the equations of motion; returns the 13-state derivative. This is the heart of the simulation. |
 | **[`physics/aero/computeAeroCoeffs.m`](physics/aero/computeAeroCoeffs.m)** | The **aerodynamic coefficients** (`CT`, `CD`, centre-of-pressure fraction, rotational-lift and spin-damping constants) as functions of angle of attack, with the attached↔separated blend and the three angle-of-attack branches. A direct port of the 2D coefficient laws. |
 | **[`physics/setupSeedShapeAndMass.m`](physics/setupSeedShapeAndMass.m)** | Turns a 2D wing polyshape + a nut mass into a full `seedParams` struct: strip geometry, and the (optionally time-varying) CoM and inertia tensor. |
+| **[`physics/rigidBody6DOF.m`](physics/rigidBody6DOF.m)** | The **shape-agnostic rigid-body core**: given mass properties and the net body-frame force/torque, it adds gravity, solves the translational (with added mass) and modified-Euler rotational dynamics, and integrates the quaternion. Both the planar and the 3D models call it, so the dynamics that must never differ live in one place. |
+| **[`physics3d/setupSeedShape3D.m`](physics3d/setupSeedShape3D.m)** | The **non-planar builder**: spanwise twist and curvature, per-strip local frames, and curvature-correct mass/inertia. Paired with [`physics3d/seed6DOFODE3D.m`](physics3d/seed6DOFODE3D.m), which runs the same 2D strip aero in each strip's own frame. Selected via `cfg.shapeModel = 'shape3d'`. |
 
 > **Note on the spanwise-flow additions.** `computeSpanForce`, `spanSpinDamping` (`Tx`),
 > and `normalSpinDamping` (`Ty`) are experimental whole-seed extensions gated behind
@@ -95,7 +108,7 @@ MATLAB. But it's nice if you have the aerospace toolbox for quaternion conversio
 
 ### Quick start — a single drop
 
-Open and run **[`Seed_Dynamics_ODE_Test.mlx`](Seed_Dynamics_ODE_Test.mlx)**. It:
+Open and run **[`Seed_Dynamics_ODE_Test.m`](Seed_Dynamics_ODE_Test.m)**. It:
 
 1. adds `physics/` and `visualization/` to the path,
 2. builds a simple rectangular seed via `setupSeedShapeAndMass`,
@@ -121,15 +134,24 @@ visualizeSeedTrajectory(t, x(:,1:3).', x(:,4:7).');
 
 ### Test suites (`testing/`)
 
+`testing/` is split by model: `planar/` for the flat-plate suites, `shape3d/` for the
+non-planar ones, `helpers/` for machinery both share, and `baselines/` for snapshots.
+
 | Script | What it does |
 |---|---|
-| `runSeedTestSuite.m` | Parameter sweeps (nut mass/position, initial tilt/spin, asymmetry, strip-count convergence); saves a trajectory figure per case and a per-group overlay. |
-| `runSeedModeSuite.m` | Elicits and auto-classifies the biological flight modes (glide, dive, spiral, autorotation, parachute). |
-| `runSpanForceComparison.m` | Four hand-tuned cases isolating the spanwise-force physics, with a torque-budget diagnostic. |
-| `runComMovementTest.m` | Drives a **time-varying** CoM (the nut slides within the body) to test mode transitions. |
+| `planar/runSeedTestSuite.m` | Parameter sweeps (nut mass/position, initial tilt/spin, asymmetry, strip-count convergence); saves a trajectory figure per case and a per-group overlay. |
+| `planar/runSeedModeSuite.m` | Elicits and auto-classifies the biological flight modes (glide, dive, spiral, autorotation, parachute). |
+| `planar/runSeedModeGrid.m` | Sweeps a chord×span grid of nut positions and renders the flight-mode phase map. `planar/pickModeGridRuns.m` lets you click cells on that map and animate them. |
+| `planar/runSpanForceComparison.m` | Four hand-tuned cases isolating the spanwise-force physics, with a torque-budget diagnostic. |
+| `planar/runComMovementTest.m` | Drives a **time-varying** CoM (the nut slides within the body) to test mode transitions; renders a mode animation per scenario. |
+| `shape3d/runTwistSuite.m` | Sweeps spanwise twist (both-ends and single-side) and reports the resulting spin. |
+| `shape3d/runTwistTest.m` | Renders animations for three twisted seeds (slight / large / asymmetric twist). |
+| `shape3d/testShape3DFlatEquivalence.m` | Regression: the 3D model must reduce **bit-identically** to the planar one for a flat seed. |
+| `shape3d/testCurvedMassProperties.m` | Regression: curved-seed mass/inertia (analytic check, planar reduction, bowl sanity, toggles). |
+| `baselines/generateModelBaseline.m` | Writes a timestamped, git-stamped snapshot (coarse mode grid + CoM suite + test suite + a config manifest) to `model_test_results/`. |
 
-Each script has an editable configuration block at the top and assumes `physics/` and
-`visualization/` are on the MATLAB path.
+Each script has an editable configuration block at the top. The suites add the paths they
+need; a bare session wants `physics/`, `physics3d/`, `visualization/` and `testing/helpers/`.
 
 ---
 
@@ -139,7 +161,7 @@ The configuration below reproduces the full set of biological descent modes. **I
 the code default** ("FULL-minus-geomVelocity"), set in `setupSeedShapeAndMass` /
 `buildSeedParams` / `seed6DOFODE`, so a seed built the normal way already uses it — you do
 not need to set these by hand. Recorded in
-[`testing/Working Dynamics Inputs 8-2-26.txt`](testing/Working%20Dynamics%20Inputs%208-2-26.txt).
+[`testing/planar/inputs/Working Dynamics Inputs 8-2-26.txt`](testing/planar/inputs/Working%20Dynamics%20Inputs%208-2-26.txt).
 
 **Base seed** (all runs): nut mass `75e-6` kg at the body center, body density `65` kg/m³,
 span `0.050` m, chord `0.015` m; air (`rhoFluid = 1.225`, buoyancy ignored); released from
@@ -285,34 +307,33 @@ Working checklist of what's outstanding. Check items off (`- [x]`) as they land.
 - [ ] Momentum-rigorous internal mass movement (the moving-nut test is a kinematic
   prescription only — no reaction of the sliding mass).
 - [ ] Tapered / arbitrary planform support beyond the rectangular test seed.
-- [ ] Non-planar (3D) seed shape: define a profile as segments in the body **YZ** plane
-  (normal × span) and extrude it by a chord width along **X**, giving the wing real
-  dihedral/camber/curl. Relevant for actual samaras (they are not flat), but can wait until
-  the larger flat-plate results are in. The rigid-body core is already 3D; the flat-plate
-  assumption is confined to strip-level geometry and aero. Each strip's local frame is the
-  body frame *rolled about the chord (X) axis* by its local dihedral angle φ, so the change
-  is: give each strip a `y` position + roll angle, rotate velocities in / forces out about X.
-  General places to touch:
-  - **New builder** (the shape-gen script): from the YZ polyline + chord, emit per-strip
-    `xgc, ygc, zgc`, arc-length width `ds` (not the z-projection), and roll angle φ / normal
-    `n̂`, into the same `strips.*` struct the ODE already consumes (flat = the φ=0 case).
-  - `physics/setupSeedShapeAndMass.m` — plate centroids get a real `y` (lines ~184, ~244);
-    roll each plate's local inertia tensor by φ (`I_local → Rᵢ·diag(...)·Rᵢᵀ`). Parallel-axis
-    sum is already 3D.
-  - `physics/seed6DOFODE.m` — put `ygc` into `r_cp`/`r_geoCenter` (lines ~303–304); project
-    strip velocity onto the local (chord, normal) via φ instead of `vStrip(1),(2)` (~292–293);
-    rotate the returned strip force back to body about X; project spin onto the *local* span
-    axis for the rotational-lift `omega_z`.
-  - `physics/helpers/computeSeedLocalVel.m` — `0 → ygc(i)` (line ~97).
-  - `physics/mass/getAddedMass.m` — broadside added mass acts along each `n̂ᵢ`, so
-    `A_trans = Σ mᵢ·(n̂ᵢ n̂ᵢᵀ)` (full 3×3) and `A_rot` needs the y-lever arms; the flat
-    approximation is a small error for gentle curl and can be deferred.
-  - `visualization/visualizeSeedShape.m` / `animateSeed.m` — render the extruded curved sheet
-    instead of the flat x-z plate.
-  - Design note: a genuine 3D shape produces the spanwise force from geometry, so the ad-hoc
-    `computeSpanForce` / span-torque block becomes redundant — default `enableSpanForce = false`
-    for 3D seeds. `computeStripForces` / `computeAngleOfAttack` need no change if the ODE does
-    the projection (treat their output as the strip-local frame).
+- [ ] Non-planar (3D) seed shape — **built, not yet experimentally validated.** Lives in its
+  own `physics3d/` module (`seedParams.model = 'shape3d'`) beside the frozen planar model;
+  both feed the shared rigid-body core `physics/rigidBody6DOF.m` and are selected by
+  `cfg.shapeModel` + `testing/helpers/seedRHS.m`. What works:
+  - **Builder** `physics3d/setupSeedShape3D.m` — spanwise **twist** θ(s) (pitch about the span
+    axis) and **curvature** φ(s) (dihedral about the chord axis), which compose. The flat span
+    coordinate is treated as ARC LENGTH and the tangent integrated (`dz=cosφ ds`, `dy=sinφ ds`)
+    to place each strip's physical `(z,y)`, so strip widths stay arc-length-correct.
+  - **Mass/inertia** — curvature-correct: the wing centroid gains a `y` shift and each strip's
+    local inertia is rotated into its own frame before the parallel-axis sum. Verified
+    analytic-exact against the closed-form thin plate (~1e-14) and shown to reduce to the
+    planar builder.
+  - **RHS** `physics3d/seed6DOFODE3D.m` — projects each strip's velocity into its local
+    (chord, normal) frame and rotates the force back to body; `computeSeedLocalVel` now
+    transports to the strip's true 3D position.
+  - **Toggles** — the planar `computeSpanForce` hack auto-disables for a *curved* seed (it
+    would double-count the spanwise force the tilted strips now produce from geometry);
+    `enableAddedMass3D` switches on the full per-strip added-mass tensor
+    `A_trans = Σ mᵢ(n̂ᵢn̂ᵢᵀ)` (off by default; reduces exactly to the flat form).
+  - **Viz + tests** — `visualizeSeedShape` draws per-strip quads (shows twist, curvature and a
+    varying chord); `testing/shape3d/` holds the twist suite plus two regressions: flat
+    equivalence (bit-identical to the planar model) and the curved mass/inertia checks.
+  - Twist reproduces the observed effect: a **centred-CoM** twisted seed spins up on its own
+    (0→71 rad/s over 0–30° tip twist), i.e. shape-driven autorotation with no mass offset.
+  Remaining: validate against real curved/twisted seeds (none of this 3D aero is experimentally
+  checked), and optionally accept a general YZ polyline profile instead of the current
+  parametric twist/curvature functions.
 - [ ] Unsteady CoP lag (first-order relaxation as a real state) instead of the stateless
   reduced-frequency attenuation.
 - [ ] Crossflow-drag-only span-force variant (pure drag, no borrowed lift / CoP migration).
