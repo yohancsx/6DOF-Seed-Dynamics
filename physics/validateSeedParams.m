@@ -48,9 +48,17 @@ function info = validateSeedParams(seedParams)
 %              (Planar is the special case chordDir=[1;0;0], normalDir=[0;1;0],
 %              spanDir=[0;0;1], ygc_body=0 for every strip.)
 %
-% OPTIONAL (defaults applied by the RHS if absent): seedParams.aero, and the
-% physics switches enableSpanForce / enableSpanTorque / enableSpanGeomVelocity /
-% enableSpanCOPMigration / enableSpanTorqueAttenuation / enableTxDamping.
+% OPTIONAL (defaults applied by the RHS if absent): seedParams.aero, plus the
+% physics switches, which now DIFFER BY MODEL:
+%   both models  : enableSpanForce, enableSpanGeomVelocity, enableAddedMass3D
+%   planar only  : enableSpanTorque, enableSpanCOPMigration,
+%                  enableSpanTorqueAttenuation, enableTxDamping,
+%                  enableNormalSpinDamping
+% The planar-only switches gate terms the Sep-2026 audit removed from
+% seed6DOFODE3D (Tx, Ty, the span torque with its migrating CoP and
+% reduced-frequency attenuation). setupSeedShape3D strips them from a shape3d
+% struct, so carrying one is a stale config rather than a silently inert knob.
+% The frozen planar model keeps all of them.
 %
 % INPUT
 %   seedParams : struct to check.

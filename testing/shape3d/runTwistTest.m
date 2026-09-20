@@ -28,7 +28,7 @@ cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;
 cfg.bulkDensity = 65;      cfg.numStrips   = 10;      cfg.tSamples  = 0;
 cfg.nutMass     = 75e-6;   cfg.rhoFluid = 1.225;      cfg.g = 9.81;
 cfg.shapeModel  = 'shape3d';                          % <-- 3D model (twist)
-cfg.aero        = struct('C_span', 0.2, 'C_span_torque', 0.7);
+cfg.aero        = struct('C_span', 0.2);   % no C_span_torque: the 3D model has no span torque
 
 % --- Simulation / classification ------------------------------------------
 cfg.tspan = [0 6];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;

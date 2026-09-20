@@ -354,6 +354,10 @@ seedParamsFull.enableSpanGeomVelocity      = false;  % no measurable effect on a
 seedParamsFull.enableSpanCOPMigration      = true;   % false -> span torque at the geo centre
 seedParamsFull.enableSpanTorqueAttenuation = false;  % not needed (Tx + weak span force handle stability)
 seedParamsFull.enableTxDamping             = true;   % raises the roll parametric threshold
+seedParamsFull.enableNormalSpinDamping     = true;   % Ty; TRUE = unchanged planar behaviour.
+                                                      % Exists so the planar model can be
+                                                      % configured down to the bare core for
+                                                      % the 3D flat-equivalence comparison.
 seedParamsFull.enableAddedMass3D           = false;  % OFF: use the flat-plate added-mass
                                                       % form. TRUE builds the full per-strip
                                                       % tensor from the strip normals -- only

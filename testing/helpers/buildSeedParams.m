@@ -37,10 +37,37 @@ function sp = buildSeedParams(bsp, cfg)
     % exactly the same values this function used to hardcode.)
     switches = {'enableSpanForce', 'enableSpanTorque', 'enableSpanGeomVelocity', ...
                 'enableSpanCOPMigration', 'enableSpanTorqueAttenuation', ...
-                'enableTxDamping', 'enableAddedMass3D'};
+                'enableTxDamping', 'enableNormalSpinDamping', 'enableAddedMass3D'};
+
+    % Switches the 3D model no longer honours (the Sep-2026 audit removed the
+    % terms they gated). Warn rather than silently apply an inert override, so a
+    % config carried over from the planar suites is visible instead of misleading.
+    deadInShape3D = {'enableSpanTorque', 'enableSpanCOPMigration', ...
+                     'enableSpanTorqueAttenuation', 'enableTxDamping', ...
+                     'enableNormalSpinDamping'};
+    isShape3D = strcmpi(sp.model, 'shape3d');
+
     for k = 1:numel(switches)
         if isfield(cfg, switches{k})
+            if isShape3D && any(strcmp(switches{k}, deadInShape3D))
+                warning('buildSeedParams:deadSwitch', ...
+                    ['cfg.%s is ignored by the shape3d model (the term it gated was ' ...
+                     'removed); drop it from this config.'], switches{k});
+                continue
+            end
             sp.(switches{k}) = cfg.(switches{k});
+        end
+    end
+
+    % Same for the aero constants those terms carried. They still exist in the
+    % shared computeAeroCoeffs because the frozen planar model reads them.
+    if isShape3D && isfield(cfg, 'aero') && ~isempty(cfg.aero)
+        deadAero = {'C_span_torque', 'k0_spanTorque', 'C_Tx', 'C_fy'};
+        stale    = deadAero(isfield(cfg.aero, deadAero));
+        if ~isempty(stale)
+            warning('buildSeedParams:deadAero', ...
+                ['cfg.aero.%s is ignored by the shape3d model (the term it scaled was ' ...
+                 'removed); drop it from this config.'], strjoin(stale, ', cfg.aero.'));
         end
     end
 

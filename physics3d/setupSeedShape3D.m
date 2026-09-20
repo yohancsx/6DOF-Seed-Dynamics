@@ -108,6 +108,23 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
         seedParamsFull.enableSpanForce = false;
     end
 
+    % --- Drop the switches the 3D RHS no longer honours --------------------
+    % setupSeedShapeAndMass stamps the full planar switch set. seed6DOFODE3D no
+    % longer reads these four -- the terms they gated (the span torque with its
+    % migrating CoP and reduced-frequency attenuation, and the Tx / Ty whole-seed
+    % spin-damping torques) were removed by the Sep-2026 audit. Leaving them on
+    % the struct would advertise knobs that silently do nothing, so strip them:
+    % a shape3d seedParams carrying one of these names is a stale config, and
+    % now looks like one. The planar model still has all of them.
+    deadSwitches = {'enableSpanTorque', 'enableSpanCOPMigration', ...
+                    'enableSpanTorqueAttenuation', 'enableTxDamping', ...
+                    'enableNormalSpinDamping'};
+    for iDead = 1:numel(deadSwitches)
+        if isfield(seedParamsFull, deadSwitches{iDead})
+            seedParamsFull = rmfield(seedParamsFull, deadSwitches{iDead});
+        end
+    end
+
     % --- Retag the model (setupSeedShapeAndMass stamped it 'planar') --------
     seedParamsFull.model = 'shape3d';
 end

@@ -195,6 +195,16 @@ if isfield(seedParams, 'enableTxDamping')
 else
     useTxDamping = true;
 end
+% enableNormalSpinDamping (default TRUE): apply the Ty plate-normal spin-damping
+% term (normalSpinDamping.m). DEFAULT TRUE, so the planar model is unchanged --
+% this switch exists only so the model can be configured down to the bare
+% APW + strips + rigid-body core for a like-for-like comparison against the 3D
+% model (testing/shape3d/testShape3DFlatEquivalence.m), which drops Ty entirely.
+if isfield(seedParams, 'enableNormalSpinDamping')
+    useNormalSpinDamping = seedParams.enableNormalSpinDamping;
+else
+    useNormalSpinDamping = true;
+end
 
 % Contributions default to zero so the post-loop accumulation is unconditional.
 F_span_apply    = [0; 0; 0];   % force  contribution (added after the strip loop)
@@ -346,7 +356,12 @@ if useTxDamping
 else
     Tx_applied = 0;
 end
-tau_body    = tau_body    + [Tx_applied; Ty; 0] + tau_span;
+if useNormalSpinDamping
+    Ty_applied = Ty;
+else
+    Ty_applied = 0;
+end
+tau_body    = tau_body    + [Tx_applied; Ty_applied; 0] + tau_span;
 F_aero_body = F_aero_body + F_span_apply;
 
 % =========================================================================
@@ -374,7 +389,8 @@ if nargout > 1
     intermediates.F_total_inertial= core.F_total_inertial; % 3x1 aero + gravity, inertial
     intermediates.Tx_spanSpin     = Tx;               % computed chordwise (roll) spin-damping torque (N*m)
     intermediates.Tx_applied      = Tx_applied;       % Tx actually added (0 if enableTxDamping false)
-    intermediates.Ty_normalSpin   = Ty;               % whole-seed normal-axis spin-damping torque (N*m)
+    intermediates.Ty_normalSpin   = Ty;               % computed normal-axis spin-damping torque (N*m)
+    intermediates.Ty_applied      = Ty_applied;       % Ty actually added (0 if enableNormalSpinDamping false)
     intermediates.spanTorqueAtten = spanTorqueAtten;  % span-torque reduced-frequency attenuation factor
     intermediates.F_span_full     = F_span_full;      % 3x1 full span-flow force, body (y-component discarded from sum)
     intermediates.F_span_apply    = F_span_apply;     % 3x1 span-flow force actually added (body-z only)

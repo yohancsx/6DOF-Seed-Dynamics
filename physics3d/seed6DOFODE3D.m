@@ -10,13 +10,39 @@ function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 % force/torque go to the shared rigid-body core (rigidBody6DOF), exactly as in the
 % planar RHS.
 %
-% SCAFFOLD STATUS: this reduces EXACTLY to the planar model when every strip's
-% frame is identity and ygc = 0 (i.e. a flat plate) -- the flat-equivalence
-% regression. Twist/curvature are introduced by the builder (setupSeedShape3D)
-% populating non-identity frames; the whole-seed span-force block below is planar
-% heritage (valid only for a flat seed) and should be switched OFF
-% (enableSpanForce = false) for genuinely curved seeds, which produce their
-% spanwise force from geometry instead.
+% SCOPE -- WHAT THIS MODEL DELIBERATELY CONTAINS:
+%   Andersen-Pesavento-Wang sectional coefficients  +  strip theory  +  rigid-body
+%   first principles  +  added mass.  Nothing else.
+%
+% A Sep-2026 audit removed the terms that had been invented to make a FLAT strip
+% decomposition fake out-of-plane behaviour. They are gone from this RHS because a
+% seed with twist and curvature produces that behaviour from real geometry:
+%   * Tx (spanSpinDamping) -- provably a DOUBLE COUNT. A pure-roll state isolates
+%     the strips' own roll moment and it converges on Tx (ratio 1.0001 at 192
+%     strips); both reduce to -rho*c*CD2*w|w|*S^4/64. Span IS the axis the strip
+%     loop discretises, so the closed-form span integral re-adds what the strips
+%     already computed. Roll damping was 2x reality.
+%   * Ty (normalSpinDamping) -- dimensionally a FORCE (rho*R^4*w^2 = N, not N*m;
+%     Tr and Tx each carry a width that Ty lacked) and 0.1% of the torque budget.
+%   * The span TORQUE, its migrating span-CoP, and the reduced-frequency
+%     attenuation -- 25% of the torque budget generated from F_span_full(2), a
+%     force this code explicitly EXCLUDES from the net force as a double count.
+%     A moment with no corresponding force matches no pressure distribution.
+%   * The tuning constants those terms carried: C_span_torque, k0_spanTorque,
+%     C_Tx, C_fy. They still exist in the shared computeAeroCoeffs (the frozen
+%     planar model reads them); this RHS simply never asks for them.
+% The planar seed6DOFODE keeps all of the above, unchanged, as the frozen
+% reference model. See the README "Model cleanup" roadmap section.
+%
+% The span FORCE survives (enableSpanForce), but now contributes its moment the
+% honest way -- cross(arm, force_actually_applied) at the seed geometric centre.
+% setupSeedShape3D switches it off for a curved seed, whose tilted strips supply
+% that force from geometry.
+%
+% FLAT EQUIVALENCE: with the planar extras disabled (enableSpanForce,
+% enableTxDamping, enableNormalSpinDamping all false on the planar side) this
+% still reduces EXACTLY to seed6DOFODE on a flat seed -- see
+% testing/shape3d/testShape3DFlatEquivalence.m.
 %
 % Requires the 'shape3d' seedParams contract (see validateSeedParams): the planar
 % strip fields PLUS strips.ygc_body and strips.chordDir/normalDir/spanDir. If a
@@ -125,19 +151,14 @@ Tbody_all = zeros(3, numStrips);
 % flat plate spanDir = [0;0;1], recovering the planar omega_z = omega(3).)
 
 % =========================================================================
-% 3a. WHOLE-SEED SPIN-DAMPING ABOUT THE CHORDWISE AND NORMAL AXES
-%     (x-axis and y-axis analogues of Tr; Tr itself only damps omega_z)
+% 3a. WHOLE-SEED GEOMETRY AGGREGATES  (used by the span force in 3b)
 % =========================================================================
-% stripSpinDamping (2D Tr) only damps spin about the SPANWISE axis (omega_z).
-% Rotation about the CHORDWISE axis (omega_x) induces a velocity that varies
-% with SPANWISE position instead, so the analogous quartic integral is redone
-% over the span (spanSpinDamping.m). Rotation about the NORMAL axis (omega_y)
-% has no clean analogous closed form (see normalSpinDamping.m) and uses a
-% placeholder quadratic form instead. Both are evaluated ONCE for the whole
-% seed rather than per strip -- see spanSpinDamping.m for why.
-omega_x = omega(1);   % chordwise angular velocity (rad/s)
-omega_y = omega(2);   % plate-normal angular velocity (rad/s)
-
+% NOTE: the whole-seed spin-damping torques Tx (spanSpinDamping) and Ty
+% (normalSpinDamping) that used to live here have been REMOVED -- see the header.
+% Tx duplicated the roll moment the strip loop already produces, and Ty was
+% dimensionally a force. Spin damping about the strip span axis is still present,
+% per strip, via stripSpinDamping (2D Tr) inside the loop below: that one is real
+% sub-strip physics, because the strip loop does not resolve the CHORD.
 totalSpan = sum(dz);               % total spanwise extent of the seed (m)
 wingArea  = sum(chord .* dz);      % total wing area (m^2)
 chordMean = wingArea / totalSpan;  % mean aerodynamic chord (m); exact for a
@@ -146,21 +167,6 @@ zGeoCenterSpan = sum(chord .* dz .* zGeo) / wingArea;  % area-weighted spanwise
                                                         % geometric centre (m)
 xGeoCenterChord = sum(chord .* dz .* xGeo) / wingArea; % area-weighted chordwise
                                                         % geometric centre (m)
-comSpanOffset  = mp.c(3) - zGeoCenterSpan;   % CoM spanwise offset from that centre (m)
-
-% CD_rot, CD0, and C_fy are all alpha-independent (see computeAeroCoeffs), so
-% any alpha works here; fetch all three from a single call.
-constCoeffs  = computeAeroCoeffs(0, aeroParams);
-CD_rot_const = constCoeffs.CD_rot;
-CD0_const    = constCoeffs.CD0;
-C_fy_const   = constCoeffs.C_fy;
-C_Tx_const   = constCoeffs.C_Tx;
-
-Tx = spanSpinDamping(totalSpan, chordMean, omega_x, comSpanOffset, CD_rot_const, rhoFluid);
-
-% Characteristic radius for the normal-axis placeholder: half the total span (for now).
-R_normalSpin = totalSpan / 2;
-Ty = normalSpinDamping(R_normalSpin, omega_y, CD0_const, C_fy_const, rhoFluid);
 
 % =========================================================================
 % 3b. WHOLE-SEED SPANWISE-FLOW FORCE  (optional; fills the unmodeled body-z force)
@@ -169,31 +175,27 @@ Ty = normalSpinDamping(R_normalSpin, omega_y, CD0_const, C_fy_const, rhoFluid);
 % sliding seed feels no aerodynamic resistance. computeSpanForce supplies a
 % single whole-seed force from flow in the span-normal (z-y) plane.
 %
-% Three independent switches (all DEFAULT TRUE when the field is absent):
-%   .enableSpanForce        - apply the span force at all
+% Two switches (both behave as in the planar model when the field is absent):
+%   .enableSpanForce        - apply the span force at all (DEFAULT TRUE).
+%                             setupSeedShape3D sets it FALSE for a CURVED seed,
+%                             whose tilted strips make this force from geometry.
 %   .enableSpanGeomVelocity - include the rotational omega x r transport when
-%                             sampling the velocity at the geometric centre.
-%     Set FALSE to drive the span force from the CoM translational velocity
-%     only. Diagnostic value: the omega x r term feeds a SPANWISE velocity only
-%     when the geometric-centre-to-CoM arm has a CHORDWISE (or out-of-plane)
-%     component, since (omega x r)_z = omega_x*r_y - omega_y*r_x. For a purely
-%     spanwise CoM offset it contributes nothing to this force, so toggling
-%     this isolates how much the rotational sweep (vs. the descent velocity
-%     resolved in the spinning body frame) is driving the span force.
-%   .enableSpanCOPMigration - place the span force at the MIGRATING span centre
-%     of pressure (true) or at the fixed geometric centre (false). The migrating
-%     CoP arm scales with the TOTAL SPAN and its l_cp_frac(beta) oscillates at
-%     the spin frequency during autorotation, which can parametrically
-%     destabilise the roll axis; setting this false removes that oscillating
-%     arm while leaving the span FORCE untouched.
+%                             sampling the velocity at the geometric centre
+%                             (DEFAULT FALSE, matching the planar model).
+%     The omega x r term feeds a SPANWISE velocity only when the
+%     geometric-centre-to-CoM arm has a CHORDWISE (or out-of-plane) component,
+%     since (omega x r)_z = omega_x*r_y - omega_y*r_x. For a purely spanwise CoM
+%     offset it contributes nothing, so toggling this isolates how much the
+%     rotational sweep (vs. the descent velocity resolved in the spinning body
+%     frame) drives the span force.
 %
-% The span torque is additionally scaled by the aero constant C_span_torque
-% (default 1), so the force and torque contributions can be tuned INDEPENDENTLY
-% -- useful because tumbling needs the force while autorotation is sensitive to
-% the torque.
-% Physics switches -- absent fields fall back to the "FULL-minus-geomVelocity"
-% default (span force + torque + CoP migration + Tx on; geom-velocity and
-% attenuation off), so the model always defaults to that config.
+% REMOVED (Sep-2026 audit) -- the span force's whole torque apparatus:
+%   .enableSpanCOPMigration, .enableSpanTorque, .enableSpanTorqueAttenuation and
+%   the constants C_span_torque / k0_spanTorque. The old span torque crossed a
+%   migrating span-CoP arm with the FULL span force, whose body-y component is
+%   excluded from the net force as a double count -- measured, 100% of that
+%   torque (25% of the seed's whole moment budget) came from a force never
+%   applied. The moment below is now just cross(arm, force actually applied).
 if isfield(seedParams, 'enableSpanForce')
     enableSpanForce = seedParams.enableSpanForce;
 else
@@ -204,46 +206,12 @@ if isfield(seedParams, 'enableSpanGeomVelocity')
 else
     useSpanGeomVelocity = false;
 end
-if isfield(seedParams, 'enableSpanCOPMigration')
-    useSpanCOPMigration = seedParams.enableSpanCOPMigration;
-else
-    useSpanCOPMigration = true;
-end
-% enableSpanTorque (default true when the span force is on): apply the span
-% force's TORQUE contribution. Set FALSE to keep the span FORCE (the body-z
-% resistance) but drop its moment entirely -- lets you test whether the force
-% alone is enough and the torque is what destabilises autorotation.
-if isfield(seedParams, 'enableSpanTorque')
-    useSpanTorque = seedParams.enableSpanTorque;
-else
-    useSpanTorque = true;
-end
-% enableSpanTorqueAttenuation (default false): scale the span torque by a
-% reduced-frequency factor 1/(1+(k/k0)^2), k = |omega_y|*S/(2*v_ip). Keys on the
-% NORMAL-axis spin omega_y (the autorotation spin) rather than total |omega|, so
-% it suppresses the span torque during fast autorotation -- where its spin-
-% frequency oscillation parametrically destabilises the roll axis -- while
-% leaving it intact during tumbling (an omega_z mode). Set FALSE for the raw
-% (unattenuated) span torque.
-if isfield(seedParams, 'enableSpanTorqueAttenuation')
-    useSpanTorqueAttenuation = seedParams.enableSpanTorqueAttenuation;
-else
-    useSpanTorqueAttenuation = false;
-end
-% enableTxDamping (default TRUE): apply the Tx chordwise-axis (roll) spin-
-% damping term (spanSpinDamping.m), scaled by aero.C_Tx. On by default.
-if isfield(seedParams, 'enableTxDamping')
-    useTxDamping = seedParams.enableTxDamping;
-else
-    useTxDamping = true;
-end
 
 % Contributions default to zero so the post-loop accumulation is unconditional.
 F_span_apply    = [0; 0; 0];   % force  contribution (added after the strip loop)
 tau_span        = [0; 0; 0];   % torque contribution (added after the strip loop)
 F_span_full     = [0; 0; 0];   % full span force, for intermediates (zero when disabled)
-spanTorqueAtten = 1;           % span-torque reduced-frequency attenuation factor
-r_spanCoP_body  = [0; 0; 0];   % span-CoP application point relative to CoM, body frame
+r_spanApply_body = [0; 0; 0];  % span-force application point relative to CoM, body frame
 
 if enableSpanForce
     % Whole-seed geometric centre in body coords (area-weighted; body y = 0).
@@ -268,8 +236,9 @@ if enableSpanForce
     beta       = computeAngleOfAttack([vSpan_gc; vNormal_gc; 0]);
     spanCoeffs = computeAeroCoeffs(beta, aeroParams);
 
-    % Full span force [0; Fy; Fz] and its span-CoP fraction (fraction of span).
-    [F_span_full, l_cp_frac_span] = computeSpanForce(vSpan_gc, vNormal_gc, ...
+    % Full span force [0; Fy; Fz]. (computeSpanForce also returns a span-CoP
+    % fraction; it is no longer used -- see the CoP-migration note in the header.)
+    F_span_full = computeSpanForce(vSpan_gc, vNormal_gc, ...
         totalSpan, chordMean, spanCoeffs.C_span, spanCoeffs, rhoFluid);
 
     % --- FORCE: keep ONLY the body-z (spanwise) component ------------------
@@ -278,53 +247,24 @@ if enableSpanForce
     % double-count it. Only the body-z direction was previously unmodeled.
     F_span_apply = [0; 0; F_span_full(3)];
 
-    % --- TORQUE: use the FULL force, including the discarded body-y --------
-    % Deliberate Option-B choice: F_span_full(2) is NOT summed into the net
-    % force above, but it IS used for the moment arm here. The strips supply the
-    % normal force and its chordwise-CoP moment, but strip theory assumes
-    % uniform spanwise loading and so can never produce the ROLL moment (about
-    % body x) from a span-offset pressure centre; crossing the migrating span-
-    % CoP arm with the full force recovers exactly that missing roll moment.
-    % (Were we to use only F_span_apply's z-component, the span-CoP -- which
-    % migrates along body z, parallel to that force -- would add no torque, and
-    % this would collapse to a pure yaw from any chordwise CoM offset, i.e. the
-    % same as applying at the geometric centre.)
+    % --- TORQUE: the moment of the force that is ACTUALLY APPLIED ----------
+    % A force acting at a point offset from the CoM produces a moment; that is the
+    % whole of it. Applied at the seed's area-weighted geometric centre, which is
+    % where a uniformly-distributed spanwise load acts.
     %
-    % Application point is switchable: the migrating span CoP (default) or the
-    % fixed geometric centre. See the enableSpanCOPMigration notes above.
-    if useSpanCOPMigration
-        zSpanCoP  = computeStripCoP(l_cp_frac_span, totalSpan, zGeoCenterSpan);  % migrating span CoP (body z)
-        r_spanArm = [xGeoCenterChord; 0; zSpanCoP] - mp.c;   % span-CoP arm, relative to CoM
-    else
-        r_spanArm = seedGeoCenter - mp.c;   % fixed geometric-centre arm (no CoP migration)
-    end
-    r_spanCoP_body = r_spanArm;   % expose the span-CoP application point (rel. to CoM)
-
-    % Reduced-frequency attenuation (quasi-steady validity). The span torque is a
-    % lumped quasi-steady CoP moment, valid only when the span-plane flow direction
-    % changes slowly relative to the convective time S/v_ip. During autorotation the
-    % descent velocity resolved into the spinning body frame makes beta -- and this
-    % torque -- oscillate at the NORMAL-axis spin omega_y, parametrically
-    % destabilising roll; the reduced frequency k = |omega_y|*S/(2*v_ip) captures
-    % that. Keying on omega_y (not total |omega|) leaves the tumbling mode (an
-    % omega_z mode, small omega_y) unattenuated.
-    if useSpanTorqueAttenuation
-        v_ip_span       = hypot(vSpan_gc, vNormal_gc);
-        k_reduced       = abs(omega_y) * totalSpan / (2 * max(v_ip_span, eps));
-        spanTorqueAtten = 1 / (1 + (k_reduced / spanCoeffs.k0_spanTorque)^2);
-    else
-        spanTorqueAtten = 1;   % raw, unattenuated span torque
-    end
-
-    % C_span_torque scales the torque only, leaving F_span_apply untouched, so
-    % the force and torque strengths are independently tunable. enableSpanTorque
-    % gates the moment entirely (force still applied) for on/off debugging.
-    if useSpanTorque
-        tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_full);
-    else
-        tau_span = [0; 0; 0];   % span FORCE kept, span TORQUE dropped
-    end
-    %tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_apply);
+    % This replaces the old "Option B" torque, which crossed a migrating span-CoP
+    % arm with the FULL span force -- including the body-y component deliberately
+    % excluded from the net force two lines above. Measured over a settled
+    % autorotation, 100% of that torque came from the excluded component (by a
+    % factor of 640), and it was 25% of the seed's entire moment budget. A moment
+    % with no corresponding force is consistent with no pressure distribution, so
+    % linear and angular momentum were being fed different loads. The stated
+    % justification -- that strip theory cannot produce a roll moment from
+    % span-offset loading -- is also false here: each strip's normal force acts at
+    % its own zGeo, so cross(r_cp, F) already carries an x-component whenever
+    % zGeo ~= c_z.
+    r_spanApply_body = seedGeoCenter - mp.c;
+    tau_span         = cross(r_spanApply_body, F_span_apply);
 end
 
 for i = 1 : numStrips
@@ -393,18 +333,15 @@ for i = 1 : numStrips
     Tbody_all(:,i)= dTau;
 end
 
-% Add the whole-seed contributions (sections 3a, 3b) -- single contributions
-% for the whole seed, not per-strip ones, so they are added here rather than
-% inside the strip-accumulation loop above:
-%   - spin-damping torques Tx (chordwise/roll, gated + scaled) and Ty (normal)
-%   - the optional spanwise-flow force (body-z only) and its torque
-% Tx is off by default (see enableTxDamping); when on it is scaled by C_Tx.
-if useTxDamping
-    Tx_applied = C_Tx_const * Tx;
-else
-    Tx_applied = 0;
-end
-tau_body    = tau_body    + [Tx_applied; Ty; 0] + tau_span;
+% Add the whole-seed contribution (section 3b) -- a single contribution for the
+% whole seed, not a per-strip one, so it is added here rather than inside the
+% strip-accumulation loop above: the optional spanwise-flow force (body-z only)
+% and the moment it makes at its application point.
+%
+% The whole-seed spin-damping torques Tx and Ty that used to be added here are
+% gone (see the header): Tx duplicated the strip loop's own roll moment, and Ty
+% was dimensionally a force.
+tau_body    = tau_body    + tau_span;
 F_aero_body = F_aero_body + F_span_apply;
 
 % =========================================================================
@@ -430,14 +367,14 @@ if nargout > 1
     intermediates.F_aero_body     = F_aero_body;      % 3x1 total aero force, body
     intermediates.F_aero_inertial = core.F_aero_inertial;  % 3x1 total aero force, inertial
     intermediates.F_total_inertial= core.F_total_inertial; % 3x1 aero + gravity, inertial
-    intermediates.Tx_spanSpin     = Tx;               % computed chordwise (roll) spin-damping torque (N*m)
-    intermediates.Tx_applied      = Tx_applied;       % Tx actually added (0 if enableTxDamping false)
-    intermediates.Ty_normalSpin   = Ty;               % whole-seed normal-axis spin-damping torque (N*m)
-    intermediates.spanTorqueAtten = spanTorqueAtten;  % span-torque reduced-frequency attenuation factor
+    % NOTE: Tx_spanSpin / Tx_applied / Ty_normalSpin / spanTorqueAtten /
+    % r_spanCoP_body are GONE -- the terms they reported were removed (see the
+    % header). The planar seed6DOFODE still exposes them, and the only consumer,
+    % testing/planar/runSpanForceComparison.m, is a planar-only diagnostic.
     intermediates.F_span_full     = F_span_full;      % 3x1 full span-flow force, body (y-component discarded from sum)
     intermediates.F_span_apply    = F_span_apply;     % 3x1 span-flow force actually added (body-z only)
-    intermediates.r_spanCoP_body  = r_spanCoP_body;   % 3x1 span-CoP application point relative to CoM, body frame
-    intermediates.tau_span        = tau_span;         % 3x1 span-flow torque, body (uses full force + migrating span CoP)
+    intermediates.r_spanApply_body= r_spanApply_body; % 3x1 span-force application point relative to CoM, body frame
+    intermediates.tau_span        = tau_span;         % 3x1 span-flow torque, body = cross(arm, F_span_apply)
     intermediates.tau_body        = tau_body;         % 3x1 total torque, body
     intermediates.a_inertial      = core.a_inertial;  % 3x1 linear acceleration
     intermediates.alpha_body      = core.alpha_body;  % 3x1 angular acceleration

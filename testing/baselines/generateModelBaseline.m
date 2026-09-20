@@ -6,7 +6,8 @@
 %     switches, aero + classifier settings, and each stage's config/inputs),
 %   - a COARSE flight-mode phase map (mode_grid/),
 %   - the 3 moving-CoM scenarios (com_movement/),
-%   - the sweep test suite (test_suite/).
+%   - the sweep test suite (test_suite/),
+%   - the shape-3D twist + curvature sweeps (shape3d/).
 % The git hash pins the exact code (incl. aero constants), so a snapshot is
 % reproducible from source. Outputs are git-ignored (see model_test_results/).
 %
@@ -24,10 +25,17 @@ githash = gitField(repoRoot, 'rev-parse --short HEAD');
 gitdirty = ~isempty(strtrim(gitField(repoRoot, 'status --porcelain')));
 stamp   = datestr(now, 'yyyy-mm-dd_HHMMSS');   %#ok<TNOW1,DATST>
 snapDir = fullfile(repoRoot, 'model_test_results', sprintf('%s_%s', stamp, githash));
-gridDir = fullfile(snapDir, 'mode_grid');
-comDir  = fullfile(snapDir, 'com_movement');
-tsDir   = fullfile(snapDir, 'test_suite');
-cellfun(@(d) mkdir(d), {snapDir, gridDir, comDir, tsDir});
+s3Dir   = fullfile(snapDir, 'shape3d');
+cellfun(@(d) mkdir(d), {snapDir, s3Dir});
+
+% --- Which models to snapshot ---------------------------------------------
+% The three shared stages run under BOTH models on the SAME flat seed, so the
+% only difference between a pair of folders is the model itself. That is the
+% comparison to iterate against: 'planar' is the frozen reference (it still
+% carries Tx, Ty and the span torque), 'shape3d' is the cleaned model. Folder
+% suffix '' keeps the planar paths byte-comparable with older snapshots.
+models = {'planar', 'shape3d'};
+sfx    = {'',       '_3d'};
 fprintf('Baseline snapshot: %s  (git %s%s)\n', snapDir, githash, ternary(gitdirty,'-dirty',''));
 
 % --- Shared base seed (the working seed used everywhere) ------------------
@@ -44,12 +52,17 @@ baseBsp.seedThickness = base.thickness;  baseBsp.numStrips = base.numStrips;
 bspSample = baseBsp;  bspSample.tSamples = 0;
 bspSample.nutPos_t = [0;0;0];  bspSample.nutMass_t = base.nutMass;
 spSample  = buildSeedParams(bspSample, struct('rhoFluid',base.rhoFluid,'g',base.g));
-switches  = struct('enableSpanForce',spSample.enableSpanForce, ...
-                   'enableSpanTorque',spSample.enableSpanTorque, ...
-                   'enableSpanGeomVelocity',spSample.enableSpanGeomVelocity, ...
-                   'enableSpanCOPMigration',spSample.enableSpanCOPMigration, ...
-                   'enableSpanTorqueAttenuation',spSample.enableSpanTorqueAttenuation, ...
-                   'enableTxDamping',spSample.enableTxDamping);
+% Record whatever enable* switches the builder actually stamped, rather than a
+% hardcoded list: the switch SET now differs by model (setupSeedShape3D strips the
+% ones whose terms the Sep-2026 audit removed), and a manifest that silently
+% omitted a new switch -- or errored on a removed one -- would defeat the point.
+switches  = readSwitches(spSample);
+% The shape3d model carries a DIFFERENT switch set (setupSeedShape3D strips the
+% ones whose terms were removed), so record it separately rather than implying
+% the planar set applies to both.
+spSample3d = buildSeedParams(bspSample, struct('rhoFluid',base.rhoFluid,'g',base.g, ...
+                                               'shapeModel','shape3d'));
+switches3d = readSwitches(spSample3d);
 % Aero fingerprint at a few AoAs (default law; exact constants pinned by git hash).
 aeroCoeffs   = computeAeroCoeffs(0, []);       % coeffs at alpha = 0
 aeroCoeffs45 = computeAeroCoeffs(pi/4, []);    % coeffs at alpha = 45 deg
@@ -57,60 +70,93 @@ modeThresh   = defaultModeThresholds();
 
 manifest = struct('stamp',stamp,'gitHash',githash,'gitDirty',gitdirty, ...
                   'matlab',version,'baseSeed',base,'switches',switches, ...
+                  'switches3d',switches3d, ...
                   'aeroCoeffs',aeroCoeffs,'aeroCoeffs45',aeroCoeffs45,'modeThresholds',modeThresh);
 save(fullfile(snapDir,'manifest.mat'),'-struct','manifest');
 writeManifestTxt(fullfile(snapDir,'manifest.txt'), manifest);
 fprintf('  wrote manifest\n');
 
-%% 2. Coarse mode grid  -> mode_grid/
-try
-    g.chordFrac = linspace(0, 1.5, 20);   g.spanFrac = linspace(0, 1.5, 20);   % COARSE
-    g.tspan = [0 12];   g.relTol = 1e-5;   g.absTol = 1e-7;
-    g.q0 = axisAngleToQuat([0;0;1], pi/6); g.omega0 = [0;0;0];
-    g.metricOpts.windowStartFrac = 0.5;    g.metricOpts.convergeTol = 0.20;
-    runCoarseGrid(g, base, baseBsp, gridDir);
-    fprintf('  mode grid done\n');
-catch ME
-    fprintf(2,'  MODE GRID FAILED: %s\n', ME.message);
-end
+%% 2-4. The three shared stages, run under EACH model on the same flat seed
+for iM = 1:numel(models)
+    mdl     = models{iM};
+    gridDir = fullfile(snapDir, ['mode_grid'    sfx{iM}]);
+    comDir  = fullfile(snapDir, ['com_movement' sfx{iM}]);
+    tsDir   = fullfile(snapDir, ['test_suite'   sfx{iM}]);
+    cellfun(@(d) mkdir(d), {gridDir, comDir, tsDir});
+    fprintf('\n===== model: %s  ->  *%s =====\n', mdl, ternary(isempty(sfx{iM}),' (no suffix)',sfx{iM}));
 
-%% 3. CoM movement suite  -> com_movement/
-try
-    cm = base;
-    cm.tspan_pad = 0;  cm.dwellTime = 1.0;  cm.moveTime = 0.8;  cm.dt = 0.02;
-    cm.odeOpts = odeset('RelTol',1e-6,'AbsTol',1e-8);
-    cm.animFps = 30;   cm.th = modeThresh; cm.animPlaybackSpeed = 0.25;
-    hc = base.chordLength/2;  hs = base.spanLength/2;
-    scen(1) = struct('name','S1_spanwise_sweep', ...
-        'pos',{{[0;0;0],[0;0;+1.0*hs],[0;0;0],[0;0;-1.0*hs],[0;0;0]}});
-    scen(2) = struct('name','S2_chordwise_sweep', ...
-        'pos',{{[0;0;0],[+1.0*hc;0;0],[0;0;0],[-1.0*hc;0;0],[0;0;0]}});
-    scen(3) = struct('name','S3_glide_spin_dive', ...
-        'pos',{{[0.8*hc;0;0],[0;0;0],[0;0;1.2*hs],[1.5*hc;0;0]}});
-    for si = 1:numel(scen)
-        runComScenarioBaseline(scen(si), cm, baseBsp, comDir);
+    % --- 2. Coarse mode grid  -> mode_grid[_3d]/ --------------------------
+    try
+        g = struct();
+        g.chordFrac = linspace(0, 1.5, 20);   g.spanFrac = linspace(0, 1.5, 20);   % COARSE
+        g.tspan = [0 12];   g.relTol = 1e-5;   g.absTol = 1e-7;
+        g.q0 = axisAngleToQuat([0;0;1], pi/6); g.omega0 = [0;0;0];
+        g.metricOpts.windowStartFrac = 0.5;    g.metricOpts.convergeTol = 0.20;
+        g.shapeModel = mdl;
+        runCoarseGrid(g, base, baseBsp, gridDir);
+        fprintf('  mode grid done\n');
+    catch ME
+        fprintf(2,'  MODE GRID FAILED: %s\n', ME.message);
     end
-    fprintf('  CoM movement suite done\n');
-catch ME
-    fprintf(2,'  COM SUITE FAILED: %s\n', ME.message);
+
+    % --- 3. CoM movement suite  -> com_movement[_3d]/ ---------------------
+    try
+        cm = base;
+        cm.tspan_pad = 0;  cm.dwellTime = 1.0;  cm.moveTime = 0.8;  cm.dt = 0.02;
+        cm.odeOpts = odeset('RelTol',1e-6,'AbsTol',1e-8);
+        cm.animFps = 30;   cm.th = modeThresh; cm.animPlaybackSpeed = 0.25;
+        cm.shapeModel = mdl;
+        hc = base.chordLength/2;  hs = base.spanLength/2;
+        clear scen
+        scen(1) = struct('name','S1_spanwise_sweep', ...
+            'pos',{{[0;0;0],[0;0;+1.0*hs],[0;0;0],[0;0;-1.0*hs],[0;0;0]}});
+        scen(2) = struct('name','S2_chordwise_sweep', ...
+            'pos',{{[0;0;0],[+1.0*hc;0;0],[0;0;0],[-1.0*hc;0;0],[0;0;0]}});
+        scen(3) = struct('name','S3_glide_spin_dive', ...
+            'pos',{{[0.8*hc;0;0],[0;0;0],[0;0;1.2*hs],[1.5*hc;0;0]}});
+        for si = 1:numel(scen)
+            runComScenarioBaseline(scen(si), cm, baseBsp, comDir);
+        end
+        fprintf('  CoM movement suite done\n');
+    catch ME
+        fprintf(2,'  COM SUITE FAILED: %s\n', ME.message);
+    end
+
+    % --- 4. Test suite  -> test_suite[_3d]/  (seedTestCases / runOneSeedCase)
+    try
+        ts = base;
+        ts.nutPos = [0;0;0];  ts.tSamples = 0;
+        ts.tspan = [0 5];  ts.odeRelTol = 1e-6;  ts.odeAbsTol = 1e-8;
+        ts.enableSpanForce = true;
+        ts.shapeModel = mdl;
+        ts.nIncr = 5;  ts.nutMassFrac = 0.20;  ts.nutPosMaxFrac = 1.20;
+        ts.tiltMaxDeg = 45;  ts.yawSpinMin = 1;  ts.yawSpinMax = 5;
+        ts.asymFactor = 0.5;  ts.stripCounts = [1 5 10 20];
+        ts.groups = struct('nutMass',true,'nutChord',true,'nutSpan',true,'nutDiag',true, ...
+                           'pitch',true,'roll',true,'yawSpin',true,'asymmetry',true,'stripConv',true);
+        ts.savePng = true;  ts.saveOverlay = true;  ts.outputRoot = tsDir;
+        runTestSuiteBaseline(ts, tsDir);
+        fprintf('  test suite done\n');
+    catch ME
+        fprintf(2,'  TEST SUITE FAILED: %s\n', ME.message);
+    end
 end
 
-%% 4. Test suite  -> test_suite/  (reuses seedTestCases / runOneSeedCase)
+%% 5. Shape-3D suites (twist + curvature)  -> shape3d/
+% The non-planar model's two shape mechanisms, swept over tip angle with a
+% CENTRED nut, so anything that happens comes from the shape and not a mass
+% offset. Mirrors testing/shape3d/runTwistSuite + runCurvatureSuite, but records
+% metrics rather than drawing, and adds a flat reference (see the note in
+% runShape3DSuites about why the 0 deg row is not that reference).
 try
-    ts = base;
-    ts.nutPos = [0;0;0];  ts.tSamples = 0;
-    ts.tspan = [0 5];  ts.odeRelTol = 1e-6;  ts.odeAbsTol = 1e-8;
-    ts.enableSpanForce = true;
-    ts.nIncr = 5;  ts.nutMassFrac = 0.20;  ts.nutPosMaxFrac = 1.20;
-    ts.tiltMaxDeg = 45;  ts.yawSpinMin = 1;  ts.yawSpinMax = 5;
-    ts.asymFactor = 0.5;  ts.stripCounts = [1 5 10 20];
-    ts.groups = struct('nutMass',true,'nutChord',true,'nutSpan',true,'nutDiag',true, ...
-                       'pitch',true,'roll',true,'yawSpin',true,'asymmetry',true,'stripConv',true);
-    ts.savePng = true;  ts.saveOverlay = true;  ts.outputRoot = tsDir;
-    runTestSuiteBaseline(ts, tsDir);
-    fprintf('  test suite done\n');
+    s3 = struct();
+    s3.tipDeg  = [0 5 10 15 20 25 30 35];      % tip twist / dihedral (deg)
+    s3.tspan   = [0 12];  s3.relTol = 1e-6;  s3.absTol = 1e-8;
+    s3.metricOpts.windowStartFrac = 0.5;  s3.metricOpts.convergeTol = 0.20;
+    runShape3DSuites(s3, base, baseBsp, s3Dir);
+    fprintf('  shape3d suites done\n');
 catch ME
-    fprintf(2,'  TEST SUITE FAILED: %s\n', ME.message);
+    fprintf(2,'  SHAPE3D SUITES FAILED: %s\n', ME.message);
 end
 
 fprintf('\nBASELINE SNAPSHOT COMPLETE: %s\n', snapDir);
@@ -124,7 +170,7 @@ function runCoarseGrid(g, base, baseBsp, outDir)
     cfg = struct('spanLength',base.spanLength,'chordLength',base.chordLength, ...
                  'thickness',base.thickness,'bulkDensity',base.bulkDensity, ...
                  'numStrips',base.numStrips,'tSamples',0,'nutMass',base.nutMass, ...
-                 'rhoFluid',base.rhoFluid,'g',base.g);
+                 'rhoFluid',base.rhoFluid,'g',base.g,'shapeModel',g.shapeModel);
     th = defaultModeThresholds();  [modeList,modeCol] = seedModeColors();
     odeOpts = odeset('RelTol',g.relTol,'AbsTol',g.absTol);
     Nx = numel(g.chordFrac);  Nz = numel(g.spanFrac);  total = Nx*Nz;
@@ -164,7 +210,7 @@ function runCoarseGrid(g, base, baseBsp, outDir)
     present=unique(modeIdx(:)).';
     for j=present; plot(nan,nan,'s','MarkerFaceColor',modeCol(j,:),'MarkerEdgeColor','k','MarkerSize',9,'DisplayName',modeList{j}); end
     legend('Location','eastoutside'); xlabel('spanwise nut offset (x chord)'); ylabel('chordwise nut offset (x chord)');
-    title(sprintf('Coarse mode grid  %dx%d', Nz, Nx));
+    title(sprintf('Coarse mode grid  %dx%d   [model: %s]', Nz, Nx, g.shapeModel));
     exportgraphics(f, fullfile(outDir,'mode_grid.png'),'Resolution',130); close(f);
 end
 
@@ -176,7 +222,7 @@ function runComScenarioBaseline(scen, cm, baseBsp, outDir)
     posList = [scen.pos{:}];
     dwell = cm.dwellTime*ones(1,size(posList,2));
     [tD,nutPos,eventT,dwellInt] = buildComPathV(posList, dwell, cm.moveTime, cm.dt);
-    cfg = struct('rhoFluid',cm.rhoFluid,'g',cm.g);   % physics defaults apply
+    cfg = struct('rhoFluid',cm.rhoFluid,'g',cm.g,'shapeModel',cm.shapeModel);   % physics defaults apply
     bsp=baseBsp; bsp.tSamples=tD; bsp.nutPos_t=nutPos; bsp.nutMass_t=cm.nutMass*ones(size(tD));
     sp=buildSeedParams(bsp,cfg);
     x0=[zeros(3,1);[1;0;0;0];zeros(3,1);zeros(3,1)];
@@ -233,6 +279,136 @@ end
 
 
 % =========================================================================
+% LOCAL: shape-3D suites -- twist + curvature swept over tip angle
+% =========================================================================
+% Four families, all with the nut at the plate CENTRE so any spin comes from the
+% SHAPE rather than a mass offset:
+%   twistA  theta(z) = k*z          anti-symmetric twist (propeller)
+%   twistB  theta(z) = (z>0)*k*z    only the +z half-wing twisted
+%   curveA  phi(s)   = k*s          symmetric bowl (y(s) is even)
+%   curveB  phi(s)   = (s>0)*k*s    only the +s half-wing bent
+% Twist rotates each strip about its SPAN axis (centres stay at y=0); curvature
+% rotates about the CHORD axis, so the strips -- and the CoM -- leave the plane.
+%
+% WHY A SEPARATE FLAT REFERENCE: a curvature profile that EVALUATES to zero is
+% still a curvature profile. setupSeedShape3D takes the curved branch and
+% switches the span force off (a curved seed's tilted strips make that force from
+% geometry, so leaving the hack on double-counts). A genuinely flat seed -- no
+% shape field at all -- keeps the span force ON. So the 0 deg rows are not the
+% flat baseline, and spanForce is recorded per case to make that visible.
+function runShape3DSuites(s3, base, baseBsp, outDir)
+    cfg = struct('spanLength',base.spanLength,'chordLength',base.chordLength, ...
+                 'thickness',base.thickness,'bulkDensity',base.bulkDensity, ...
+                 'numStrips',base.numStrips,'tSamples',0,'nutMass',base.nutMass, ...
+                 'rhoFluid',base.rhoFluid,'g',base.g,'shapeModel','shape3d', ...
+                 'tspan',s3.tspan,'odeRelTol',s3.relTol,'odeAbsTol',s3.absTol, ...
+                 'metricOpts',s3.metricOpts,'modeThresholds',defaultModeThresholds());
+    hs = base.spanLength/2;
+    q0 = [1;0;0;0];  omega0 = [0;0;0];  nutCentre = [0;0;0];
+
+    % --- Case list (flat reference first, then the four families) ----------
+    names={}; kinds={}; fams={}; tips=[]; shapes={};
+    names{end+1}='flat_reference'; kinds{end+1}='none'; fams{end+1}='flat';
+    tips(end+1)=0; shapes{end+1}=[];
+    for td = s3.tipDeg
+        k = deg2rad(td)/hs;      % captured by value in each handle below
+        names{end+1}=sprintf('twistA_%02ddeg',td); kinds{end+1}='twist';
+        fams{end+1}='twistA_bothEnds';   tips(end+1)=td; shapes{end+1}=@(z) k.*z;           %#ok<AGROW>
+        names{end+1}=sprintf('twistB_%02ddeg',td); kinds{end+1}='twist';
+        fams{end+1}='twistB_singleSide'; tips(end+1)=td; shapes{end+1}=@(z) (z>0).*k.*z;    %#ok<AGROW>
+        names{end+1}=sprintf('curveA_%02ddeg',td); kinds{end+1}='curvature';
+        fams{end+1}='curveA_bowl';       tips(end+1)=td; shapes{end+1}=@(s) k.*s;           %#ok<AGROW>
+        names{end+1}=sprintf('curveB_%02ddeg',td); kinds{end+1}='curvature';
+        fams{end+1}='curveB_singleSide'; tips(end+1)=td; shapes{end+1}=@(s) (s>0).*k.*s;    %#ok<AGROW>
+    end
+    N = numel(names);
+
+    % --- Run them ----------------------------------------------------------
+    modeStr=strings(N,1); desc=nan(N,1); vSpin=nan(N,1); sSpin=nan(N,1); cone=nan(N,1);
+    tiltSd=nan(N,1); glide=nan(N,1); helixR=nan(N,1); conv=false(N,1);
+    comY=nan(N,1); spanF=false(N,1); ok=false(N,1);
+    tAll=cell(N,1); xAll=cell(N,1);
+    try if isempty(gcp('nocreate')); parpool('local'); end; catch; end
+    parfor n = 1:N
+        bsp = baseBsp;
+        switch kinds{n}
+            case 'twist';     bsp.twist     = shapes{n};
+            case 'curvature'; bsp.curvature = shapes{n};
+        end
+        try
+            r = runSingleMode(names{n}, nutCentre, q0, omega0, cfg, bsp);
+            m = r.metrics;
+            modeStr(n)=string(r.mode); desc(n)=m.descentSpeed; vSpin(n)=m.verticalSpinMag;
+            sSpin(n)=m.spanwiseSpin; cone(n)=m.coneAngleDeg; tiltSd(n)=m.tiltStd;
+            glide(n)=m.glideRatio; helixR(n)=m.helixRadius; conv(n)=m.converged;
+            comY(n)=r.seedParams.massParams.com_t(2,1);
+            spanF(n)=r.seedParams.enableSpanForce;
+            tAll{n}=r.t; xAll{n}=r.x; ok(n)=true;
+        catch
+            modeStr(n)="failed";
+        end
+    end
+
+    % --- Save --------------------------------------------------------------
+    % Build by assignment, NOT struct(...): a cell-valued field passed to struct()
+    % expands into a struct ARRAY, one element per cell, which is not what we want.
+    results = struct();
+    results.name = names;   results.family = fams;   results.kind = kinds;
+    results.tipDeg = tips;  results.mode = modeStr;
+    results.descentSpeed = desc;      results.verticalSpinMag = vSpin;
+    results.spanwiseSpin = sSpin;     results.coneAngleDeg    = cone;
+    results.tiltStd = tiltSd;         results.glideRatio      = glide;
+    results.helixRadius = helixR;     results.converged       = conv;
+    results.comY = comY;              results.enableSpanForce = spanF;
+    results.ok = ok;
+    save(fullfile(outDir,'shape3d_suites.mat'),'results','tAll','xAll','cfg','s3');
+
+    % --- Summary table -----------------------------------------------------
+    fid = fopen(fullfile(outDir,'summary.txt'),'w');
+    fprintf(fid,'Shape-3D suites (nut at plate centre; spin comes from SHAPE only)\n');
+    fprintf(fid,'NOTE: the 0 deg rows run the CURVED/TWISTED code path. For curvature that\n');
+    fprintf(fid,'means the span force is OFF, so they are not the flat reference -- the\n');
+    fprintf(fid,'flat_reference row is. spF shows the span-force state per case.\n\n');
+    fprintf(fid,'%-22s %-18s %-4s %-13s %-8s %-8s %-8s %-7s %-5s\n', ...
+            'case','family','spF','CoM_y (m)','vSpin','spanSpin','descent','cone','conv');
+    for n=1:N
+        fprintf(fid,'%-22s %-18s %-4d %-+13.3e %-8.2f %-8.2f %-8.2f %-7.1f %-5d  %s\n', ...
+                names{n}, fams{n}, spanF(n), comY(n), vSpin(n), sSpin(n), ...
+                desc(n), cone(n), conv(n), modeStr(n));
+    end
+    fclose(fid);
+
+    % --- Figure: the four families vs tip angle ----------------------------
+    famList = {'twistA_bothEnds','twistB_singleSide','curveA_bowl','curveB_singleSide'};
+    mk = {'-o','-s','-^','-d'};
+    panels = {'verticalSpinMag','vertical spin |\omega_Y| (rad/s)'; ...
+              'descentSpeed',   'descent speed (m/s)'; ...
+              'coneAngleDeg',   'cone angle (deg)'; ...
+              'comY',           'out-of-plane CoM, y (m)'};
+    dat = struct('verticalSpinMag',vSpin,'descentSpeed',desc,'coneAngleDeg',cone,'comY',comY);
+    f = figure('Color','w','Visible','off','Position',[80 80 1000 760]);
+    iFlat = find(strcmp(fams,'flat'),1);
+    for p = 1:4
+        subplot(2,2,p); hold on; grid on;
+        v = dat.(panels{p,1});
+        for q = 1:numel(famList)
+            sel = strcmp(fams, famList{q});
+            [tt,ord] = sort(tips(sel));  vv = v(sel);  vv = vv(ord);
+            plot(tt, vv, mk{q}, 'LineWidth',1.4);
+        end
+        if p <= 3
+            yline(v(iFlat), '--', 'flat ref', 'Color',[0.45 0.45 0.45]);
+        end
+        xlabel('tip twist / dihedral (deg)'); ylabel(panels{p,2});
+        if p==1; legend(famList,'Interpreter','none','Location','best'); end
+    end
+    sgtitle('Shape-3D suites: twist and curvature vs tip angle');
+    exportgraphics(f, fullfile(outDir,'shape3d_suites.png'),'Resolution',130);
+    close(f);
+end
+
+
+% =========================================================================
 % LOCAL: waypoint list (+ dwells) -> dense pchip nut path + dwell intervals
 % =========================================================================
 function [tDense,nutPos,eventT,dwellInt] = buildComPathV(posList,dwellList,moveTime,dt)
@@ -263,7 +439,12 @@ function writeManifestTxt(path, m)
     fprintf(fid,'git commit: %s%s\n', m.gitHash, ternary(m.gitDirty,'  (WORKING TREE DIRTY)',''));
     fprintf(fid,'matlab    : %s\n\n', m.matlab);
     fprintf(fid,'Base seed:\n'); disp_struct(fid, m.baseSeed);
-    fprintf(fid,'\nPhysics switches:\n'); disp_struct(fid, m.switches);
+    fprintf(fid,'\nPhysics switches (planar model):\n'); disp_struct(fid, m.switches);
+    if isfield(m,'switches3d')
+        fprintf(fid,'\nPhysics switches (shape3d model -- a different set; the rest were\n');
+        fprintf(fid,'removed with the terms they gated, see the README model-cleanup arc):\n');
+        disp_struct(fid, m.switches3d);
+    end
     fprintf(fid,'\nAero coeffs (at alpha=0; law constants pinned by git hash):\n'); disp_struct(fid, m.aeroCoeffs);
     fprintf(fid,'\nMode-classifier thresholds:\n'); disp_struct(fid, m.modeThresholds);
     fclose(fid);
@@ -279,3 +460,12 @@ function disp_struct(fid, s)
     end
 end
 function out = ternary(cond, a, b); if cond; out=a; else; out=b; end; end
+function sw = readSwitches(sp)
+% Collect whatever enable* switches the builder stamped, rather than a hardcoded
+% list: the set differs by model, and a manifest that silently omitted a new one
+% -- or errored on a removed one -- would defeat the point of the manifest.
+    sw = struct();
+    f  = fieldnames(sp);
+    f  = f(startsWith(f, 'enable'));
+    for i = 1:numel(f); sw.(f{i}) = sp.(f{i}); end
+end
