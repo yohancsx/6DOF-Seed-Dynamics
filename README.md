@@ -261,7 +261,7 @@ recorded as individual items under *Bugs* below.
 Goal: get back to **Andersen–Pesavento–Wang + strips + first principles + added mass**, then
 measure what survives before adding anything new. The phases run in order; phase 3 gates phase 4.
 
-- [ ] **1 — Curvature tests in the benchmark suite.** *(built and run — confirm before ticking.)*
+- [x] **1 — Curvature tests in the benchmark suite.**
   `testing/shape3d/runCurvatureSuite.m` (symmetric bowl + single-side, swept 0–35° tip dihedral,
   with a separate **flat reference row**) and `runCurvatureTest.m` (three animations). Baseline
   captured before the cuts. Result: a **symmetric bowl produces no spin at all** (0.00 rad/s
@@ -272,7 +272,7 @@ measure what survives before adding anything new. The phases run in order; phase
   switches the span force off, so the 0° row is not the flat baseline. Measured, that config
   difference is nil here (1.66 vs 1.66 m/s descent, 51.0° vs 50.9° cone) — itself consistent with
   the span force being 1% of weight.
-- [ ] **2 — Cut the invented terms, in `physics3d/` only.** Remove `Tx`, `Ty`, the span torque,
+- [x] **2 — Cut the invented terms, in `physics3d/` only.** Remove `Tx`, `Ty`, the span torque,
   the span-CoP migration and the reduced-frequency attenuation from `seed6DOFODE3D.m`, along
   with the constants `C_span_torque` / `k0_spanTorque` / `C_Tx` / `C_fy`. The planar RHS stays
   frozen and bit-identical, and the shared `computeAeroCoeffs` is untouched — the 3D RHS simply
@@ -281,7 +281,7 @@ measure what survives before adding anything new. The phases run in order; phase
   only its torque apparatus is. Its moment becomes the honest `cross(r, F)` at the real
   application point (measured `1.07e-07` N·m — negligible, but correct).
 
-  *(done — confirm before ticking.)* The switch set now differs by model: a `shape3d`
+  The switch set now differs by model: a `shape3d`
   seedParams carries only `enableSpanForce`, `enableSpanGeomVelocity`, `enableAddedMass3D`,
   because `setupSeedShape3D` strips the rest and `buildSeedParams` **warns** on a stale
   `cfg.enable*` or `cfg.aero.*` override instead of applying it silently. One prerequisite was
@@ -318,7 +318,7 @@ measure what survives before adding anything new. The phases run in order; phase
   seed has no mechanism to resist going edge-on. **The 3D model is not usable for quantitative
   work until phase 4 lands** — that is expected, and it is the argument for phase 4 rather than
   against the cuts, which removed provably-wrong terms.
-- [ ] **3 — Benchmark gate: what survives?** *(run — confirm before ticking.)* Snapshot
+- [x] **3 — Benchmark gate: what survives?** Snapshot
   `model_test_results/2026-09-20_134952_af98e91`, now with a fourth stage, `shape3d/`, that
   sweeps twist and curvature (four families × 0–35° tip angle, centred nut) alongside the three
   planar stages. `generateModelBaseline` records both models' switch sets, since they now differ.
@@ -373,21 +373,48 @@ measure what survives before adding anything new. The phases run in order; phase
 - [ ] **4 — Then add real physics back.** Phase 3 **reordered this list.** The failure mode is
   attitude equilibrium, not sectional lift magnitude, so the items that act on the *moment*
   balance now come first:
-  1. **Induced inflow + tip loss.** The strongest candidate, and phase 3 pinned down exactly why.
-     What the cuts removed was a pitching/rolling moment (the span torque was 25% of the moment
-     budget; `Tx` halved the roll damping), and the cone equilibrium went with it — but *only for
-     seeds with a near-centred CoM*, which have no weight × arm couple to supply that moment
-     instead. Spanwise load redistribution is the real mechanism that does, and it is the honest
-     version of the span-CoP migration that was cut: it shifts the CoP inboard steadily rather
-     than oscillating at spin frequency. AR = 3.33, so the elliptic slope is 67% of the 2D value.
-     **Success criterion:** `flutter+spiral` (nut at `0.01·S`) recovers `spiral` instead of
-     collapsing edge-on, and the centred-CoM twist cases stop diving at 13 m/s — without
-     undoing the mode-grid gains on offset-CoM cells.
-  2. **LEV augmentation.** Still real and still needed (the separated branch caps at
-     `CT = 0.95`; LEV-bearing samara sections reach ~2), but phase 3 argues it will not fix the
-     descent on its own: multiplying a force that is pointing sideways and cancelling does not
-     restore vertical support. It changes the torques too, so the two are coupled — implement
-     inflow/tip-loss first, then judge LEV against a model that holds a sensible cone.
+  1. ~~**Induced inflow + tip loss.**~~ **DROPPED — checked against this seed's numbers before
+     implementing, and neither term can do the job.** *Induced inflow:* with `v_h = sqrt(T/2ρA)`,
+     both regimes sit at `V_d/v_h ≈ 23`, an order of magnitude past the windmill-brake threshold
+     (|V_d/v_h| > 2), where momentum theory gives `v_i` = **0.19% of the descent velocity**. A real
+     samara at 1 m/s sits at `V_d/v_h = 4.4` with `v_i` at 5.5% — small, and still not a source of
+     moment. *Tip loss:* a centred-CoM wing **straddles** the rotation axis, so both tips are at
+     `r = R` and Prandtl's `F` is symmetric about the CoM — a symmetric load reduction contributes
+     **exactly zero** net rolling moment to the regime that is failing. Worse, single-bladed
+     Prandtl at these inflow angles gives `F = 0.23–0.69` across the *whole* span (not a tip
+     correction), which would cut lift 30–77% and make descent worse. Revisit only if descent
+     falls far enough to bring the rotor back toward `V_d/v_h ≈ 4`.
+
+     **What the data points to instead: it is a CHORDWISE (pitch) problem.** Holding the spanwise
+     offset in the collapse band and sweeping the nut chordwise, mid-chord is the *worst* possible
+     CoM position and a quarter-chord shift either way rescues it:
+
+     | nut x/c | CoM, % chord | mode | descent | cone |
+     |---|---|---|---|---|
+     | −0.25 | 39.1 | fluttering | **2.18** | **49.4** |
+     | 0.00 | 50.0 | autorotation | **13.66** | **86.6** |
+     | +0.25 | 60.9 | fluttering | **2.19** | **49.4** |
+
+     The model's best chordwise position (39%, equivalently 61% from the other edge) is adjacent
+     to the **27–35% of chord behind the leading edge** that Norberg (1973) measured experimentally
+     for flat-plate pitch stability at `Re ≈ 2000`. The governing quantity is the chordwise
+     CoP-to-CoM relationship — i.e. `computeAeroCoeffs`' `l_cp(α)` law — not spanwise load.
+     Full working, with sources: `derivations/` and the phase-4 pre-check page.
+  2. **LEV augmentation — now promoted to FIRST**, and for a reason beyond lift magnitude. A
+     stable leading-edge vortex sits near the leading edge and pulls the chordwise centre of
+     pressure **forward** — i.e. it moves the very quantity the pre-check identified as governing
+     the collapse. Rezgui, Arroyo & Theunissen (2020, *Aeronautical Journal* 124(1278):1236–1261,
+     [doi:10.1017/aer.2020.25](https://doi.org/10.1017/aer.2020.25)) adapt Polhamus' leading-edge
+     suction analogy into a **sectional 2D lift function inside a blade-element model of a
+     rotating samara**, wind-tunnel validated against rotational speed and descent rate — the same
+     architecture as this model, and the same two quantities that are wrong here. Experimental
+     basis: Lentink et al. (2009, *Science* 324:1438–1440).
+
+     ⚠️ **Modelling decision this forces.** The current coefficient laws cannot tell a leading
+     edge from a trailing one — the chordwise sweep above is symmetric about mid-chord to three
+     digits because the aero is. A real LEV term *breaks* that symmetry, since the vortex forms at
+     whichever edge leads. Implementing it means introducing a chordwise orientation the model
+     does not currently have. That is a design choice, not a coefficient swap.
   3. **`-Ȧv`.** Free, first-principles, 0.77 g. Deferred out of phase 2 to keep the benchmark
      attributable; no reason left to defer it further.
   4. **Nut form drag.** Real but least relevant to this failure — for a centred nut it acts near
