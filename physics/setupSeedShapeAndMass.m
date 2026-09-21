@@ -358,6 +358,10 @@ seedParamsFull.enableNormalSpinDamping     = true;   % Ty; TRUE = unchanged plan
                                                       % Exists so the planar model can be
                                                       % configured down to the bare core for
                                                       % the 3D flat-equivalence comparison.
+seedParamsFull.enableAddedMassRate         = false;  % Adot*v in the translational EOM.
+                                                      % OFF here so the frozen planar model
+                                                      % stays byte-identical; the shape3d
+                                                      % builder turns it ON (first principles).
 seedParamsFull.enableAddedMass3D           = false;  % OFF: use the flat-plate added-mass
                                                       % form. TRUE builds the full per-strip
                                                       % tensor from the strip normals -- only

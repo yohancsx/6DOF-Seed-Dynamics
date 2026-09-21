@@ -4,14 +4,15 @@
 % FLAT seed. Run this after any change to the 3D physics: if it still passes, the
 % change did not disturb flat-plate dynamics.
 %
-% SCOPE NOTE (Sep-2026 audit). The two models are no longer identical out of the
-% box, by design: the 3D RHS dropped the invented whole-seed terms (Tx, Ty, the
-% span torque with its migrating CoP and reduced-frequency attenuation) while the
-% planar RHS keeps them as the frozen reference. So equivalence is now asserted
-% over the SHARED CORE -- Andersen-Pesavento-Wang sectional coefficients + strip
-% theory + rigid-body dynamics + added mass -- by configuring the planar model
-% down to it. That is a stronger statement than it looks: it says the cuts removed
-% exactly the intended terms and touched nothing else.
+% SCOPE NOTE. The two models are no longer identical out of the box, by design.
+% The Sep-2026 audit removed the invented whole-seed terms (Tx, Ty, the span
+% torque with its migrating CoP and reduced-frequency attenuation) from the 3D RHS,
+% and phase 4 retired the span force there and ADDED edge drag and the added-mass
+% rate; the planar RHS keeps its original terms as the frozen reference. So
+% equivalence is asserted over the SHARED CORE -- Andersen-Pesavento-Wang sectional
+% coefficients + strip theory + rigid-body dynamics + added mass -- by switching
+% each model's extras off. That is a stronger statement than it looks: it says the
+% edits changed exactly the intended terms and touched nothing else.
 %
 % Checks:
 %   1. The 'shape3d' flat seed has identical strips/mass to the planar seed, plus
@@ -41,13 +42,17 @@ baseBsp.seedDensity=cfg.bulkDensity*cfg.thickness; baseBsp.seedThickness=cfg.thi
 baseBsp.numStrips=cfg.numStrips;
 
 % --- Configs -------------------------------------------------------------
-% CORE: planar stripped down to what the 3D model still has. The span force is
-% switched off on BOTH sides (it survives in the 3D model, but its moment is now
-% computed differently, so it is not part of the shared core).
+% CORE: each model stripped down to what they SHARE -- APW sectional coefficients
+% + strip theory + rigid-body dynamics + added mass.
+%   planar : drop its invented whole-seed terms (span force, Tx, Ty).
+%   shape3d: drop its phase-4 additions (edge drag, added-mass rate). Both are
+%            first-principles or physically grounded and ON by default, but they
+%            are NOT in the planar model, so they are not part of the core.
 cfgPcore = cfg;
 cfgPcore.enableSpanForce = false;  cfgPcore.enableTxDamping = false;
 cfgPcore.enableNormalSpinDamping = false;
-cfg3core = cfg;  cfg3core.shapeModel = 'shape3d';  cfg3core.enableSpanForce = false;
+cfg3core = cfg;  cfg3core.shapeModel = 'shape3d';
+cfg3core.enableEdgeDrag = false;   cfg3core.enableAddedMassRate = false;
 
 % FULL: each model at its own defaults (planar keeps the invented terms).
 cfgPfull = cfg;
@@ -72,7 +77,8 @@ framesFlat = all(sp3.strips.ygc_body==0) && isequal(sp3.strips.chordDir, repmat(
 % The 3D builder must strip the switches whose terms were cut, so a stale config
 % is visible rather than silently inert.
 deadSwitches = {'enableSpanTorque','enableSpanCOPMigration', ...
-                'enableSpanTorqueAttenuation','enableTxDamping','enableNormalSpinDamping'};
+                'enableSpanTorqueAttenuation','enableTxDamping','enableNormalSpinDamping', ...
+                'enableSpanForce','enableSpanGeomVelocity'};
 stripped = ~any(isfield(sp3, deadSwitches));
 fprintf('geometry/mass identical to planar: %d   |   flat frames (y=0, identity): %d\n', geomOK, framesFlat);
 fprintf('shape3d struct free of the cut switches: %d\n', stripped);

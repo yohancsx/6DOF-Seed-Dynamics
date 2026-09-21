@@ -127,8 +127,10 @@ for iM = 1:numel(models)
         ts = base;
         ts.nutPos = [0;0;0];  ts.tSamples = 0;
         ts.tspan = [0 5];  ts.odeRelTol = 1e-6;  ts.odeAbsTol = 1e-8;
-        ts.enableSpanForce = true;
-        ts.shapeModel = mdl;
+        ts.shapeModel = mdl;   % physics switches: each model's builder defaults
+                               % (an explicit enableSpanForce here would be a
+                               % dead switch under shape3d, and is planar's
+                               % default anyway)
         ts.nIncr = 5;  ts.nutMassFrac = 0.20;  ts.nutPosMaxFrac = 1.20;
         ts.tiltMaxDeg = 45;  ts.yawSpinMin = 1;  ts.yawSpinMax = 5;
         ts.asymFactor = 0.5;  ts.stripCounts = [1 5 10 20];
@@ -290,12 +292,11 @@ end
 % Twist rotates each strip about its SPAN axis (centres stay at y=0); curvature
 % rotates about the CHORD axis, so the strips -- and the CoM -- leave the plane.
 %
-% WHY A SEPARATE FLAT REFERENCE: a curvature profile that EVALUATES to zero is
-% still a curvature profile. setupSeedShape3D takes the curved branch and
-% switches the span force off (a curved seed's tilted strips make that force from
-% geometry, so leaving the hack on double-counts). A genuinely flat seed -- no
-% shape field at all -- keeps the span force ON. So the 0 deg rows are not the
-% flat baseline, and spanForce is recorded per case to make that visible.
+% THE FLAT REFERENCE IS A SANITY ANCHOR. The 0 deg rows used to run different
+% physics from a genuinely flat seed (a zero-valued curvature profile switched the
+% old span force off). Phase 4 retired the span force from the 3D model, so every
+% 0 deg row and the flat reference now run identical physics and must agree to
+% integrator precision.
 function runShape3DSuites(s3, base, baseBsp, outDir)
     cfg = struct('spanLength',base.spanLength,'chordLength',base.chordLength, ...
                  'thickness',base.thickness,'bulkDensity',base.bulkDensity, ...
@@ -326,7 +327,7 @@ function runShape3DSuites(s3, base, baseBsp, outDir)
     % --- Run them ----------------------------------------------------------
     modeStr=strings(N,1); desc=nan(N,1); vSpin=nan(N,1); sSpin=nan(N,1); cone=nan(N,1);
     tiltSd=nan(N,1); glide=nan(N,1); helixR=nan(N,1); conv=false(N,1);
-    comY=nan(N,1); spanF=false(N,1); ok=false(N,1);
+    comY=nan(N,1); ok=false(N,1);  errMsg=strings(N,1);
     tAll=cell(N,1); xAll=cell(N,1);
     try if isempty(gcp('nocreate')); parpool('local'); end; catch; end
     parfor n = 1:N
@@ -342,11 +343,16 @@ function runShape3DSuites(s3, base, baseBsp, outDir)
             sSpin(n)=m.spanwiseSpin; cone(n)=m.coneAngleDeg; tiltSd(n)=m.tiltStd;
             glide(n)=m.glideRatio; helixR(n)=m.helixRadius; conv(n)=m.converged;
             comY(n)=r.seedParams.massParams.com_t(2,1);
-            spanF(n)=r.seedParams.enableSpanForce;
             tAll{n}=r.t; xAll{n}=r.x; ok(n)=true;
-        catch
-            modeStr(n)="failed";
+        catch ME
+            % Keep the reason. A bare catch here once would have hidden a stale
+            % field reference as "every case failed" -- record it and surface it.
+            modeStr(n)="failed";  errMsg(n)=string(ME.message);
         end
+    end
+    if any(~ok)
+        fprintf(2,'  %d/%d shape3d cases FAILED; first error: %s\n', ...
+                nnz(~ok), N, errMsg(find(~ok,1)));
     end
 
     % --- Save --------------------------------------------------------------
@@ -359,21 +365,19 @@ function runShape3DSuites(s3, base, baseBsp, outDir)
     results.spanwiseSpin = sSpin;     results.coneAngleDeg    = cone;
     results.tiltStd = tiltSd;         results.glideRatio      = glide;
     results.helixRadius = helixR;     results.converged       = conv;
-    results.comY = comY;              results.enableSpanForce = spanF;
-    results.ok = ok;
+    results.comY = comY;              results.ok = ok;
+    results.errMsg = errMsg;
     save(fullfile(outDir,'shape3d_suites.mat'),'results','tAll','xAll','cfg','s3');
 
     % --- Summary table -----------------------------------------------------
     fid = fopen(fullfile(outDir,'summary.txt'),'w');
     fprintf(fid,'Shape-3D suites (nut at plate centre; spin comes from SHAPE only)\n');
-    fprintf(fid,'NOTE: the 0 deg rows run the CURVED/TWISTED code path. For curvature that\n');
-    fprintf(fid,'means the span force is OFF, so they are not the flat reference -- the\n');
-    fprintf(fid,'flat_reference row is. spF shows the span-force state per case.\n\n');
-    fprintf(fid,'%-22s %-18s %-4s %-13s %-8s %-8s %-8s %-7s %-5s\n', ...
-            'case','family','spF','CoM_y (m)','vSpin','spanSpin','descent','cone','conv');
+    fprintf(fid,'The 0 deg rows and flat_reference run identical physics and should agree.\n\n');
+    fprintf(fid,'%-22s %-18s %-13s %-8s %-8s %-8s %-7s %-5s\n', ...
+            'case','family','CoM_y (m)','vSpin','spanSpin','descent','cone','conv');
     for n=1:N
-        fprintf(fid,'%-22s %-18s %-4d %-+13.3e %-8.2f %-8.2f %-8.2f %-7.1f %-5d  %s\n', ...
-                names{n}, fams{n}, spanF(n), comY(n), vSpin(n), sSpin(n), ...
+        fprintf(fid,'%-22s %-18s %-+13.3e %-8.2f %-8.2f %-8.2f %-7.1f %-5d  %s\n', ...
+                names{n}, fams{n}, comY(n), vSpin(n), sSpin(n), ...
                 desc(n), cone(n), conv(n), modeStr(n));
     end
     fclose(fid);

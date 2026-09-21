@@ -74,4 +74,13 @@ end
 % -------------------------------------------------------------------------
 [mp.A_trans, mp.A_rot] = getAddedMass(seedParams, mp.c);
 
+% -------------------------------------------------------------------------
+% 4. PHYSICS SWITCH consumed by the rigid-body core
+%    rigidBody6DOF sees only mp, so the added-mass-rate switch travels on it.
+%    Absent -> false, which keeps any seedParams built before this switch existed
+%    (and the frozen planar model) byte-identical.
+% -------------------------------------------------------------------------
+mp.enableAddedMassRate = isfield(seedParams, 'enableAddedMassRate') ...
+                         && seedParams.enableAddedMassRate;
+
 end

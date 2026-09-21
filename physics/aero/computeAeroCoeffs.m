@@ -59,6 +59,9 @@ function coeffs = computeAeroCoeffs(alpha, aero)
 %   coeffs.C_Tx      : tuning factor for the Tx chordwise-axis (roll) spin
 %                      damping (spanSpinDamping.m), applied when that term is
 %                      enabled. CONSTANT (alpha-independent).
+%   coeffs.C_d_edge  : bluff-tip drag coefficient for the shape3d edge crossflow
+%                      drag (physics3d/computeEdgeDrag.m), referenced to the
+%                      frontal area thickness*chord. CONSTANT. Planar never reads it.
 
 % -------------------------------------------------------------------------
 % 0. PARAMETERS
@@ -87,6 +90,7 @@ C_span = aero.C_span;                                  % spanwise-flow force tun
 C_span_torque = aero.C_span_torque;                    % spanwise-flow TORQUE tuning factor
 k0_spanTorque = aero.k0_spanTorque;                    % span-torque attenuation roll-off
 C_Tx = aero.C_Tx;                                      % Tx (roll) spin-damping tuning factor
+C_d_edge = aero.C_d_edge;                              % edge (tip) crossflow drag coefficient
 
 % -------------------------------------------------------------------------
 % 1. SMOOTH ATTACHED<->SEPARATED BLEND WEIGHTS  (2D lines 122-123)
@@ -158,6 +162,7 @@ coeffs.C_span    = C_span; % spanwise-flow force tuning factor (constant)
 coeffs.C_span_torque = C_span_torque;  % spanwise-flow torque tuning factor (constant)
 coeffs.k0_spanTorque = k0_spanTorque;  % span-torque attenuation roll-off (constant)
 coeffs.C_Tx      = C_Tx;   % Tx roll spin-damping tuning factor (constant)
+coeffs.C_d_edge  = C_d_edge; % edge crossflow drag coefficient (constant; shape3d only)
 
 end   % computeAeroCoeffs
 
@@ -189,4 +194,8 @@ function aero = defaultAeroParams()
                                % attenuation; ~preserves the torque at low spin
                                % (tumbling) and suppresses it at high spin (autorotation)
     aero.C_Tx = 1.0;          % Tx (chordwise-axis / roll) spin-damping tuning factor
+    aero.C_d_edge = 1.2;      % EDGE crossflow drag coefficient (shape3d computeEdgeDrag).
+                               % Bluff rectangular tip, referenced to thickness*chord.
+                               % Not a fit: a textbook bluff-body value. Planar never
+                               % reads it, so adding it leaves the frozen model unchanged.
 end

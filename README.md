@@ -152,6 +152,8 @@ non-planar ones, `helpers/` for machinery both share, and `baselines/` for snaps
 | `baselines/compareBaselineModels.m` | Diffs a snapshot's planar and shape3d stages: mode census, migration table (which mode became which), metric shifts on unchanged cells, a three-panel map with a changed-cell overlay, and the CoM/test-suite outcomes. Optionally regression-checks the planar stages against an older snapshot. **Re-run after every phase-4 change.** |
 | `shape3d/testShape3DFlatEquivalence.m` | Regression: the 3D model must reduce **bit-identically** to the planar one for a flat seed. |
 | `shape3d/testCurvedMassProperties.m` | Regression: curved-seed mass/inertia (analytic check, planar reduction, bowl sanity, toggles). |
+| `shape3d/testNewPhysicsTerms.m` | Regression for the phase-4 terms: the added-mass rate (implementation vs formula vs finite difference, sign in the solve) and edge drag (zero/quadratic/odd/opposing, and the net spanwise force in a pure slide). |
+| `shape3d/exploreLEVTerm.m` | **Prototype only** — plots the candidate LEV vortex-lift term against α and Rossby number, and the centre-of-pressure options, before anything is implemented. States every modelling choice (`r`, `c`, `Ro`, `p`, `λ_v`, `K_v`) with its alternatives. Figures go outside the repo. |
 | `baselines/generateModelBaseline.m` | Writes a timestamped, git-stamped snapshot (coarse mode grid + CoM suite + test suite + a config manifest) to `model_test_results/`. |
 
 Each script has an editable configuration block at the top. The suites add the paths they
@@ -327,16 +329,24 @@ measure what survives before adding anything new. The phases run in order; phase
   400-cell mode grid is byte-identical, the test suite summary is byte-identical, and all three
   CoM-movement scenarios reproduce their dwell-mode sequences exactly.
 
-  **The span force is measurably inert.** The flat reference (span force ON) and the 0° curvature
-  rows (span force OFF) are otherwise the same seed. They differ by ≤ `7e-4` relative on every
-  metric — descent `1.6589` vs `1.6588` m/s, cone `50.95°` vs `50.99°`. It can go in phase 4
-  without ceremony.
+  **The span force is measurably inert — on the flat reference.** The flat reference (span force
+  ON) and the 0° curvature rows (span force OFF) differ by ≤ `7e-4` relative on every metric —
+  descent `1.6589` vs `1.6588` m/s, cone `50.95°` vs `50.99°`.
+  > **Correction (phase 4).** This was scoped wrong. That seed never slides along its own span,
+  > so of course a spanwise force was inert there. In the *collapse* cases the span force was the
+  > **only** spanwise resistance the model had — see the next paragraph and phase 4.
 
   **The failure is an ATTITUDE failure, not a lift-magnitude one.** The collapsed cases reach
   genuine terminal equilibrium (vertical aero force / weight = `1.00`) while descending 12–14 m/s
   at cone 84–89°, i.e. edge-on — the plate normal is roughly horizontal, so the large sectional
   forces point sideways and cancel around each revolution, leaving almost nothing supporting the
-  weight. Time-weighted on a uniform grid, the strip angle-of-attack distribution is **nearly
+  weight.
+  > **Correction (phase 4).** More precisely, the collapsed seed falls **span-first**: the strips
+  > then see purely spanwise flow and produce exactly zero force, so the terminal velocity is set
+  > *entirely* by whatever spanwise drag term exists. `v = sqrt(2W/(ρ·C_d·A))` with the old span
+  > force's `CD0·C_span·S·c̄` predicts **13.57** m/s; phase 3 measured **13.65**. So the 12–14 m/s
+  > here was the retired span force's drag level, not a property of the aerodynamics. With *no*
+  > spanwise term the same case approaches free fall (82 m/s). Time-weighted on a uniform grid, the strip angle-of-attack distribution is **nearly
   identical across every case** — attached ~10%, LEV band (20–60°) ~22%, bluff (>75°) ~57% —
   including the flat reference descending at 1.66 m/s. The sections are not operating
   differently; the seed is *oriented* differently.
@@ -400,26 +410,75 @@ measure what survives before adding anything new. The phases run in order; phase
      for flat-plate pitch stability at `Re ≈ 2000`. The governing quantity is the chordwise
      CoP-to-CoM relationship — i.e. `computeAeroCoeffs`' `l_cp(α)` law — not spanwise load.
      Full working, with sources: `derivations/` and the phase-4 pre-check page.
-  2. **LEV augmentation — now promoted to FIRST**, and for a reason beyond lift magnitude. A
-     stable leading-edge vortex sits near the leading edge and pulls the chordwise centre of
-     pressure **forward** — i.e. it moves the very quantity the pre-check identified as governing
-     the collapse. Rezgui, Arroyo & Theunissen (2020, *Aeronautical Journal* 124(1278):1236–1261,
-     [doi:10.1017/aer.2020.25](https://doi.org/10.1017/aer.2020.25)) adapt Polhamus' leading-edge
-     suction analogy into a **sectional 2D lift function inside a blade-element model of a
-     rotating samara**, wind-tunnel validated against rotational speed and descent rate — the same
-     architecture as this model, and the same two quantities that are wrong here. Experimental
-     basis: Lentink et al. (2009, *Science* 324:1438–1440).
+  2. **LEV augmentation — NOT YET IMPLEMENTED; the case for it has weakened.** Explore it with
+     `testing/shape3d/exploreLEVTerm.m` (a self-contained prototype — nothing wired into
+     `physics3d/`). The exact form, from Rezgui, Arroyo & Theunissen (2020, *Aeronautical Journal*
+     124(1278):1236–1261, [doi:10.1017/aer.2020.25](https://doi.org/10.1017/aer.2020.25)), who adapt
+     Polhamus (1966, NASA TN D-3767; 1971, *J. Aircraft* 8(4):193–199) to a samara blade section:
 
-     ⚠️ **Modelling decision this forces.** The current coefficient laws cannot tell a leading
-     edge from a trailing one — the chordwise sweep above is symmetric about mid-chord to three
-     digits because the aero is. A real LEV term *breaks* that symmetry, since the vortex forms at
-     whichever edge leads. Implementing it means introducing a chordwise orientation the model
-     does not currently have. That is a design choice, not a coefficient swap.
-  3. **`-Ȧv`.** Free, first-principles, 0.77 g. Deferred out of phase 2 to keep the benchmark
-     attributable; no reason left to defer it further.
+         C_L,v = K_v · sin²α · cos α / cos Λ              (their eq. 3; sweep Λ = 0)
+         K_v   = K_p − K_p²·K_i ,   K_i = ∂C_Di / ∂C_L²    (eqs. 4–5)
+
+     Only the vortex term is new — the APW law already supplies the potential lift. **`K_v` is not a
+     free constant**: it is derived from the planform's lift slope `K_p` and induced-drag factor `K_i`,
+     which must come from the *same* model (mixing APW's 2D `CL1 = 5.2` with a 3D `K_i` spuriously
+     drives `K_v → 0.04`). With Helmbold slope and elliptic `K_i`: `K_v` = **1.29 / 2.35 / 2.85** for
+     AR = 1.67 (one blade, centred CoM) / 3.33 (whole seed) / 4.38 (Rezgui's samara).
+
+     Three findings temper the earlier plan to put this first:
+     - **Mostly outside the validated range.** Rezgui et al. validate only α = 0–25°; the vortex
+       term peaks at 54.7°. At 25° it is half the APW value; it dominates only where it is untested.
+     - **The CoP motivation does not survive the literature.** The reason LEV was promoted was that
+       it should pull the centre of pressure forward. But Snyder & Lamar (1972, NASA TN D-6994) find
+       vortex-lift loading on low-AR delta wings "similar in shape to that of the potential-flow
+       longitudinal loading" — i.e. at about the **same** CoP. Under that (the only sourced option),
+       LEV adds lift and **does not touch the pitch balance at all**. The unsourced forward option
+       (`λ_v = 0.5`) moves the CoP by at most **~0.035 c** — against the **~0.25 c** CoM shift that
+       rescued the collapse in the chordwise sweep. Seven times too small.
+     - **It cannot act in the collapsed state.** Falling span-first, the strips see no in-plane flow,
+       so there is no angle of attack and no LEV. At most it could affect the *transition* into
+       collapse.
+
+     Still physically real and well-motivated for **lift magnitude** — the total peaks near 1.8–2.0,
+     matching Lentink et al. (2009) — so it may yet matter for the absolute descent rate. It is no
+     longer the leading candidate for the collapse. The Rossby gate (`Ro_crit = 3`, Lentink &
+     Dickinson 2009) and the centre-of-pressure placement are *additions* made here, not in Rezgui.
+
+     *(An earlier version of this item warned that the model cannot tell a leading edge from a
+     trailing one. That was wrong: the leading edge is `sign(cos α) = sign(v_c)`, which
+     `computeAeroCoeffs` already branches on, and `sign(l_cp)` tracks it at every angle.)*
+  3. **`-Ȧv` — IMPLEMENTED, ON by default for shape3d** (`enableAddedMassRate`; OFF for planar so
+     it stays byte-frozen). Lives in the shared core `physics/rigidBody6DOF.m`, which folds
+     `Ȧ_i·v = ω×(A_i v) − A_i(ω×v)` into the force before the translational solve. Verified:
+     implementation vs formula `4.8e-15`, formula vs finite difference of `R·A_b·Rᵀ` along a real
+     trajectory `5.6e-10`, enters the solve with the right sign `1.6e-15`. Negligible on offset-CoM
+     cases (autorotation 4.42 → 4.41 m/s); large on the centred-CoM twist case (46.5 → 11.0 m/s alone).
   4. **Nut form drag.** Real but least relevant to this failure — for a centred nut it acts near
      the CoM and contributes little moment.
-  5. **Edge crossflow drag**, replacing `computeSpanForce`, which phase 3 measured as inert.
+  5. **Edge crossflow drag — IMPLEMENTED, ON by default for shape3d** (`enableEdgeDrag`),
+     `physics3d/computeEdgeDrag.m`: `F = −½ρ·C_d·(t·c̄)·|v_s|·v_s·ŝ` at the area centroid, `C_d = 1.2`,
+     sampling velocity by the transport theorem. **Replaces `computeSpanForce`, now retired from the
+     3D model** along with `enableSpanForce` and `enableSpanGeomVelocity` (the builder strips both;
+     `buildSeedParams` warns on either). Only tip form drag is modelled — laminar skin friction on
+     the faces is comparable at this `Re`, so this is a lower bound by roughly 2×.
+     > **My prediction that this would be inert was wrong.** In the collapse cases it is the only
+     > spanwise resistance, and it sets the terminal velocity exactly: predicted
+     > `sqrt(2W/(ρ·1.2·t·c̄))` = **8.76** m/s, measured **8.76** (`flutter+spiral`). Without it that
+     > case approaches free fall (82 m/s).
+
+     Regression: `testing/shape3d/testNewPhysicsTerms.m` (11 checks, both terms, inside and
+     outside the RHS). `testShape3DFlatEquivalence` now switches both terms off for its core
+     comparison, and still matches planar to `0.000e+00`.
+
+  **Benchmark after items 3 and 5** — snapshot `2026-09-21_103642_6940ceb`. Planar is still
+  byte-identical to the `a51df23` snapshot (grid and test suite). Against the previous 3D grid
+  (span force, no rate term), 43 of 400 cells changed: autorotation +10, tightSpiral −14,
+  diving +6, and mean descent on unchanged cells fell 4.82 → 4.30 m/s. **Cells descending faster
+  than 10 m/s went from 33 to 0** — the span-first collapse cells are now bounded by honest tip drag
+  (~8.8 m/s) instead of the retired span force (~13.6), and several are now correctly labelled
+  `diving`. Against planar the 3D model now has diving −26, autorotation +25, and mean descent
+  5.24 → 3.88 m/s on unchanged cells. The seven mode-eliciting inputs are still 6/7:
+  `flutter+spiral` still collapses, now to `diving` at 8.76 m/s rather than 13.65.
   LEV and the aspect-ratio correction push in opposite directions; both are real and they do not
   cancel.
 

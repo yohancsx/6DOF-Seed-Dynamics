@@ -97,28 +97,44 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     % strip positions + orientations.
     if hasCurvature
         seedParamsFull.massParams = curvedMassProperties(seedParamsFull, bsp);
-
-        % --- Span-force hack OFF by default for a CURVED seed --------------
-        % computeSpanForce is planar heritage: it fakes the body-z force that a
-        % FLAT seed's strips can never produce (their normals are all body-y).
-        % Once the strips are tilted out of plane they generate that spanwise
-        % force from geometry, so leaving the hack on DOUBLE-COUNTS it. Twist
-        % alone does not tilt the normals out of the x-y plane, so it keeps the
-        % planar default. Override via cfg.enableSpanForce if you want to A/B it.
-        seedParamsFull.enableSpanForce = false;
     end
+    % (A curved seed used to switch the planar span-force hack off here, because
+    % its tilted strips produce that force from geometry. The span force is now
+    % retired from this model entirely -- see below -- so the special case is gone.
+    % Its replacement, edge drag, is tip form drag: a different mechanism from the
+    % strips' normal forces, so it does not double-count on a curved seed.)
+
+    % --- Wing thickness: needed for the edge-drag frontal area ---------------
+    % setupSeedShapeAndMass reads it but does not keep it; record it here rather
+    % than change the frozen planar builder.
+    seedParamsFull.seedThickness = bsp.seedThickness;
+
+    % --- Physics switches for the shape3d model -------------------------------
+    % Both ON by default: each is either first principles or removes a
+    % known-unphysical exact zero. The frozen planar model keeps neither.
+    %   enableAddedMassRate -- the Adot*v term in the translational EOM
+    %                          (rigidBody6DOF). Measured at 31-43% of net force.
+    %   enableEdgeDrag      -- tip crossflow drag for spanwise sliding
+    %                          (computeEdgeDrag). Replaces the span force.
+    % Override either through cfg (buildSeedParams applies explicit overrides).
+    seedParamsFull.enableAddedMassRate = true;
+    seedParamsFull.enableEdgeDrag      = true;
 
     % --- Drop the switches the 3D RHS no longer honours --------------------
     % setupSeedShapeAndMass stamps the full planar switch set. seed6DOFODE3D no
-    % longer reads these four -- the terms they gated (the span torque with its
-    % migrating CoP and reduced-frequency attenuation, and the Tx / Ty whole-seed
-    % spin-damping torques) were removed by the Sep-2026 audit. Leaving them on
-    % the struct would advertise knobs that silently do nothing, so strip them:
-    % a shape3d seedParams carrying one of these names is a stale config, and
-    % now looks like one. The planar model still has all of them.
+    % longer reads these -- the terms they gated were removed:
+    %   Sep-2026 audit : the span torque with its migrating CoP and reduced-
+    %                    frequency attenuation; the Tx / Ty spin-damping torques.
+    %   phase 4        : the span force itself (measured inert to <= 7e-4 relative
+    %                    on every metric) and the velocity-sampling switch that
+    %                    only it used. Edge drag replaces it.
+    % Leaving them on the struct would advertise knobs that silently do nothing, so
+    % strip them: a shape3d seedParams carrying one is a stale config, and now looks
+    % like one. The planar model still has all of them.
     deadSwitches = {'enableSpanTorque', 'enableSpanCOPMigration', ...
                     'enableSpanTorqueAttenuation', 'enableTxDamping', ...
-                    'enableNormalSpinDamping'};
+                    'enableNormalSpinDamping', 'enableSpanForce', ...
+                    'enableSpanGeomVelocity'};
     for iDead = 1:numel(deadSwitches)
         if isfield(seedParamsFull, deadSwitches{iDead})
             seedParamsFull = rmfield(seedParamsFull, deadSwitches{iDead});

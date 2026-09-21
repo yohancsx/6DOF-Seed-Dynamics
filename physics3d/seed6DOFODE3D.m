@@ -34,13 +34,18 @@ function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 % The planar seed6DOFODE keeps all of the above, unchanged, as the frozen
 % reference model. See the README "Model cleanup" roadmap section.
 %
-% The span FORCE survives (enableSpanForce), but now contributes its moment the
-% honest way -- cross(arm, force_actually_applied) at the seed geometric centre.
-% setupSeedShape3D switches it off for a curved seed, whose tilted strips supply
-% that force from geometry.
+% PHASE 4 -- the span force went too (measured inert, wrong shape), and two
+% physically-grounded terms came in, each behind a switch that setupSeedShape3D
+% turns ON by default:
+%   * enableEdgeDrag      -- pure drag on a seed sliding along its span, which
+%     the strips cannot see at all (computeEdgeDrag). Section 3b.
+%   * enableAddedMassRate -- the Adot*v term of the translational EOM: spinning
+%     changes the entrained fluid's momentum even at constant speed. Lives in the
+%     shared core, rigidBody6DOF; off there by default so planar stays frozen.
 %
 % FLAT EQUIVALENCE: with the planar extras disabled (enableSpanForce,
-% enableTxDamping, enableNormalSpinDamping all false on the planar side) this
+% enableTxDamping, enableNormalSpinDamping false on the planar side) and the two
+% phase-4 terms disabled here (enableEdgeDrag, enableAddedMassRate false), this
 % still reduces EXACTLY to seed6DOFODE on a flat seed -- see
 % testing/shape3d/testShape3DFlatEquivalence.m.
 %
@@ -151,7 +156,7 @@ Tbody_all = zeros(3, numStrips);
 % flat plate spanDir = [0;0;1], recovering the planar omega_z = omega(3).)
 
 % =========================================================================
-% 3a. WHOLE-SEED GEOMETRY AGGREGATES  (used by the span force in 3b)
+% 3a. WHOLE-SEED GEOMETRY AGGREGATES  (used by the edge drag in 3b)
 % =========================================================================
 % NOTE: the whole-seed spin-damping torques Tx (spanSpinDamping) and Ty
 % (normalSpinDamping) that used to live here have been REMOVED -- see the header.
@@ -167,104 +172,46 @@ zGeoCenterSpan = sum(chord .* dz .* zGeo) / wingArea;  % area-weighted spanwise
                                                         % geometric centre (m)
 xGeoCenterChord = sum(chord .* dz .* xGeo) / wingArea; % area-weighted chordwise
                                                         % geometric centre (m)
+yGeoCenterNorm  = sum(chord .* dz .* yGeo) / wingArea; % area-weighted out-of-plane
+                                                        % centre (m); 0 unless curved
 
 % =========================================================================
-% 3b. WHOLE-SEED SPANWISE-FLOW FORCE  (optional; fills the unmodeled body-z force)
+% 3b. EDGE CROSSFLOW DRAG  (enableEdgeDrag, DEFAULT TRUE for shape3d)
 % =========================================================================
-% The chordwise strips produce zero body-z (spanwise) force, so a sideways-
-% sliding seed feels no aerodynamic resistance. computeSpanForce supplies a
-% single whole-seed force from flow in the span-normal (z-y) plane.
+% The chordwise strips produce exactly zero force along the span, so a seed
+% sliding sideways would feel no aerodynamic resistance at all. Physically it
+% presents its wingtip -- a small bluff section, thickness by chord. See
+% computeEdgeDrag for the law and why the area centroid is the exact application
+% point. Pure drag opposing the spanwise velocity; no lift, no migrating CoP.
 %
-% Two switches (both behave as in the planar model when the field is absent):
-%   .enableSpanForce        - apply the span force at all (DEFAULT TRUE).
-%                             setupSeedShape3D sets it FALSE for a CURVED seed,
-%                             whose tilted strips make this force from geometry.
-%   .enableSpanGeomVelocity - include the rotational omega x r transport when
-%                             sampling the velocity at the geometric centre
-%                             (DEFAULT FALSE, matching the planar model).
-%     The omega x r term feeds a SPANWISE velocity only when the
-%     geometric-centre-to-CoM arm has a CHORDWISE (or out-of-plane) component,
-%     since (omega x r)_z = omega_x*r_y - omega_y*r_x. For a purely spanwise CoM
-%     offset it contributes nothing, so toggling this isolates how much the
-%     rotational sweep (vs. the descent velocity resolved in the spinning body
-%     frame) drives the span force.
+% The velocity is sampled at the application point by the transport theorem,
+% v = R'*v_CoM + omega x (centroid - CoM). That is simply the correct velocity at
+% that point: the retired span force made this optional (enableSpanGeomVelocity)
+% and defaulted it OFF, which was the unphysical choice.
 %
-% REMOVED (Sep-2026 audit) -- the span force's whole torque apparatus:
-%   .enableSpanCOPMigration, .enableSpanTorque, .enableSpanTorqueAttenuation and
-%   the constants C_span_torque / k0_spanTorque. The old span torque crossed a
-%   migrating span-CoP arm with the FULL span force, whose body-y component is
-%   excluded from the net force as a double count -- measured, 100% of that
-%   torque (25% of the seed's whole moment budget) came from a force never
-%   applied. The moment below is now just cross(arm, force actually applied).
-if isfield(seedParams, 'enableSpanForce')
-    enableSpanForce = seedParams.enableSpanForce;
-else
-    enableSpanForce = true;
-end
-if isfield(seedParams, 'enableSpanGeomVelocity')
-    useSpanGeomVelocity = seedParams.enableSpanGeomVelocity;
-else
-    useSpanGeomVelocity = false;
-end
+% RETIRED HERE (phase 4): computeSpanForce and its two switches, enableSpanForce
+% and enableSpanGeomVelocity. Phase 3 measured the span force inert (<= 7e-4
+% relative on every benchmark metric), and its law had the wrong shape -- smallest
+% for a pure spanwise slide and largest where the strips already supply the force.
+% Its torque apparatus had already gone in the Sep-2026 audit. The planar model
+% keeps it unchanged. This term is expected to be inert too (~4x smaller again);
+% it exists to remove a known-unphysical zero, not to move results.
+useEdgeDrag = isfield(seedParams, 'enableEdgeDrag') && seedParams.enableEdgeDrag;
 
 % Contributions default to zero so the post-loop accumulation is unconditional.
-F_span_apply    = [0; 0; 0];   % force  contribution (added after the strip loop)
-tau_span        = [0; 0; 0];   % torque contribution (added after the strip loop)
-F_span_full     = [0; 0; 0];   % full span force, for intermediates (zero when disabled)
-r_spanApply_body = [0; 0; 0];  % span-force application point relative to CoM, body frame
+F_edge         = [0; 0; 0];    % edge-drag force (added after the strip loop), body
+tau_edge       = [0; 0; 0];    % its moment about the CoM, body
+r_edgeArm_body = [0; 0; 0];    % application point relative to the CoM, body
+vSpan_edge     = 0;            % spanwise velocity the drag responded to (m/s)
 
-if enableSpanForce
-    % Whole-seed geometric centre in body coords (area-weighted; body y = 0).
-    seedGeoCenter = [xGeoCenterChord; 0; zGeoCenterSpan];
-
-    % Bulk velocity at the geometric centre. With the transport term (default):
-    %   v_gc^body = R' * v_com^inertial + omega^body x (geoCentre - CoM)
-    % Without it, only the CoM translational velocity drives the span force, so
-    % the seed's own rotational sweep cannot feed back into this translational
-    % drag (see the toggle notes above).
-    v_com_body = R.' * v;
-    if useSpanGeomVelocity
-        v_gc_body = v_com_body + cross(omega, seedGeoCenter - mp.c);
-    else
-        v_gc_body = v_com_body;      % translation only -- omit the rotational sweep
-    end
-    vSpan_gc   = v_gc_body(3);   % spanwise    (body z) component
-    vNormal_gc = v_gc_body(2);   % plate-normal (body y) component
-
-    % Angle of attack in the span-normal plane: atan2(vNormal, vSpan). Reuse
-    % computeAngleOfAttack by placing span in its "chord" (first) slot.
-    beta       = computeAngleOfAttack([vSpan_gc; vNormal_gc; 0]);
-    spanCoeffs = computeAeroCoeffs(beta, aeroParams);
-
-    % Full span force [0; Fy; Fz]. (computeSpanForce also returns a span-CoP
-    % fraction; it is no longer used -- see the CoP-migration note in the header.)
-    F_span_full = computeSpanForce(vSpan_gc, vNormal_gc, ...
-        totalSpan, chordMean, spanCoeffs.C_span, spanCoeffs, rhoFluid);
-
-    % --- FORCE: keep ONLY the body-z (spanwise) component ------------------
-    % Explicitly DISCARD body-x (already 0) and body-y (normal). The strips
-    % already model the normal-direction force; re-adding F_span_full(2) would
-    % double-count it. Only the body-z direction was previously unmodeled.
-    F_span_apply = [0; 0; F_span_full(3)];
-
-    % --- TORQUE: the moment of the force that is ACTUALLY APPLIED ----------
-    % A force acting at a point offset from the CoM produces a moment; that is the
-    % whole of it. Applied at the seed's area-weighted geometric centre, which is
-    % where a uniformly-distributed spanwise load acts.
-    %
-    % This replaces the old "Option B" torque, which crossed a migrating span-CoP
-    % arm with the FULL span force -- including the body-y component deliberately
-    % excluded from the net force two lines above. Measured over a settled
-    % autorotation, 100% of that torque came from the excluded component (by a
-    % factor of 640), and it was 25% of the seed's entire moment budget. A moment
-    % with no corresponding force is consistent with no pressure distribution, so
-    % linear and angular momentum were being fed different loads. The stated
-    % justification -- that strip theory cannot produce a roll moment from
-    % span-offset loading -- is also false here: each strip's normal force acts at
-    % its own zGeo, so cross(r_cp, F) already carries an x-component whenever
-    % zGeo ~= c_z.
-    r_spanApply_body = seedGeoCenter - mp.c;
-    tau_span         = cross(r_spanApply_body, F_span_apply);
+if useEdgeDrag
+    areaCentroid   = [xGeoCenterChord; yGeoCenterNorm; zGeoCenterSpan];
+    r_edgeArm_body = areaCentroid - mp.c;
+    v_centroid     = R.' * v + cross(omega, r_edgeArm_body);   % transport theorem
+    A_edge         = seedParams.seedThickness * chordMean;     % frontal area (m^2)
+    edgeCoeffs     = computeAeroCoeffs(0, aeroParams);         % C_d_edge is alpha-free
+    [F_edge, tau_edge, vSpan_edge] = computeEdgeDrag(v_centroid, r_edgeArm_body, ...
+        [0; 0; 1], A_edge, edgeCoeffs.C_d_edge, rhoFluid);
 end
 
 for i = 1 : numStrips
@@ -335,14 +282,13 @@ end
 
 % Add the whole-seed contribution (section 3b) -- a single contribution for the
 % whole seed, not a per-strip one, so it is added here rather than inside the
-% strip-accumulation loop above: the optional spanwise-flow force (body-z only)
-% and the moment it makes at its application point.
+% strip-accumulation loop above: the edge crossflow drag and its moment.
 %
 % The whole-seed spin-damping torques Tx and Ty that used to be added here are
 % gone (see the header): Tx duplicated the strip loop's own roll moment, and Ty
-% was dimensionally a force.
-tau_body    = tau_body    + tau_span;
-F_aero_body = F_aero_body + F_span_apply;
+% was dimensionally a force. The span force is gone too, replaced by edge drag.
+tau_body    = tau_body    + tau_edge;
+F_aero_body = F_aero_body + F_edge;
 
 % =========================================================================
 % 4. SHARED RIGID-BODY CORE  ->  state derivative
@@ -368,13 +314,15 @@ if nargout > 1
     intermediates.F_aero_inertial = core.F_aero_inertial;  % 3x1 total aero force, inertial
     intermediates.F_total_inertial= core.F_total_inertial; % 3x1 aero + gravity, inertial
     % NOTE: Tx_spanSpin / Tx_applied / Ty_normalSpin / spanTorqueAtten /
-    % r_spanCoP_body are GONE -- the terms they reported were removed (see the
-    % header). The planar seed6DOFODE still exposes them, and the only consumer,
+    % r_spanCoP_body, and the span-force fields F_span_full / F_span_apply /
+    % tau_span, are GONE -- the terms they reported were removed (see the header).
+    % The planar seed6DOFODE still exposes them, and their only consumer,
     % testing/planar/runSpanForceComparison.m, is a planar-only diagnostic.
-    intermediates.F_span_full     = F_span_full;      % 3x1 full span-flow force, body (y-component discarded from sum)
-    intermediates.F_span_apply    = F_span_apply;     % 3x1 span-flow force actually added (body-z only)
-    intermediates.r_spanApply_body= r_spanApply_body; % 3x1 span-force application point relative to CoM, body frame
-    intermediates.tau_span        = tau_span;         % 3x1 span-flow torque, body = cross(arm, F_span_apply)
+    intermediates.F_edge          = F_edge;           % 3x1 edge crossflow drag, body (0 if off)
+    intermediates.tau_edge        = tau_edge;         % 3x1 its moment about the CoM, body
+    intermediates.r_edgeArm_body  = r_edgeArm_body;   % 3x1 area centroid relative to CoM, body
+    intermediates.vSpan_edge      = vSpan_edge;       % spanwise velocity at the centroid (m/s)
+    intermediates.F_addedMassRate = core.F_addedMassRate; % 3x1 Adot*v, inertial (0 if off)
     intermediates.tau_body        = tau_body;         % 3x1 total torque, body
     intermediates.a_inertial      = core.a_inertial;  % 3x1 linear acceleration
     intermediates.alpha_body      = core.alpha_body;  % 3x1 angular acceleration

@@ -49,16 +49,19 @@ function info = validateSeedParams(seedParams)
 %              spanDir=[0;0;1], ygc_body=0 for every strip.)
 %
 % OPTIONAL (defaults applied by the RHS if absent): seedParams.aero, plus the
-% physics switches, which now DIFFER BY MODEL:
-%   both models  : enableSpanForce, enableSpanGeomVelocity, enableAddedMass3D
-%   planar only  : enableSpanTorque, enableSpanCOPMigration,
-%                  enableSpanTorqueAttenuation, enableTxDamping,
-%                  enableNormalSpinDamping
-% The planar-only switches gate terms the Sep-2026 audit removed from
-% seed6DOFODE3D (Tx, Ty, the span torque with its migrating CoP and
-% reduced-frequency attenuation). setupSeedShape3D strips them from a shape3d
-% struct, so carrying one is a stale config rather than a silently inert knob.
-% The frozen planar model keeps all of them.
+% physics switches, which DIFFER BY MODEL:
+%   both models  : enableAddedMass3D, enableAddedMassRate (planar default OFF,
+%                  shape3d default ON -- it lives in the shared rigidBody6DOF)
+%   planar only  : enableSpanForce, enableSpanGeomVelocity, enableSpanTorque,
+%                  enableSpanCOPMigration, enableSpanTorqueAttenuation,
+%                  enableTxDamping, enableNormalSpinDamping
+%   shape3d only : enableEdgeDrag (default ON)
+% The planar-only switches gate terms removed from seed6DOFODE3D -- by the
+% Sep-2026 audit (Tx, Ty, the span torque with its migrating CoP and
+% reduced-frequency attenuation) and in phase 4 (the span force, replaced by edge
+% drag). setupSeedShape3D strips them from a shape3d struct, so carrying one is a
+% stale config rather than a silently inert knob. The frozen planar model keeps
+% all of them. A shape3d struct also carries .seedThickness (edge-drag area).
 %
 % INPUT
 %   seedParams : struct to check.

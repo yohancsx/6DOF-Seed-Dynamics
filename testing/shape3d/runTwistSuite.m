@@ -27,7 +27,8 @@ cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;
 cfg.bulkDensity = 65;      cfg.numStrips   = 10;      cfg.tSamples  = 0;
 cfg.nutMass     = 75e-6;   cfg.rhoFluid = 1.225;      cfg.g = 9.81;
 cfg.shapeModel  = 'shape3d';                          % <-- selects the 3D model
-cfg.aero        = struct('C_span', 0.2);   % no C_span_torque: the 3D model has no span torque
+% (No cfg.aero: the shape3d model has no span force or span torque left for
+%  C_span / C_span_torque to scale. Physics defaults come from setupSeedShape3D.)
 
 % --- Simulation / analysis ------------------------------------------------
 cfg.tspan = [0 12];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;

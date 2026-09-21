@@ -33,10 +33,8 @@ cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;
 cfg.bulkDensity = 65;      cfg.numStrips   = 10;      cfg.tSamples  = 0;
 cfg.nutMass     = 75e-6;   cfg.rhoFluid = 1.225;      cfg.g = 9.81;
 cfg.shapeModel  = 'shape3d';                          % <-- 3D model (curvature)
-cfg.aero        = struct('C_span', 0.2);   % no C_span_torque: the 3D model has no span torque
-% NOTE: inert here -- setupSeedShape3D switches the planar span-force hack OFF for
-% a CURVED seed (its tilted strips supply that force from geometry, so leaving the
-% hack on would double-count). See runCurvatureSuite for the flat-vs-0deg caveat.
+% (No cfg.aero: the shape3d model has no span force or span torque left for
+%  C_span / C_span_torque to scale. Physics defaults come from setupSeedShape3D.)
 
 % --- Simulation / classification ------------------------------------------
 cfg.tspan = [0 6];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;
@@ -86,8 +84,8 @@ function runCurvatureCase(name, curvatureFn, cfg, baseBsp)
     % runSingleMode (which routes shape3d -> seed6DOFODE3D through seedRHS).
     bsp = baseBsp;   bsp.curvature = curvatureFn;
     r = runSingleMode(char(name), [0; 0; 0], [1; 0; 0; 0], [0; 0; 0], cfg, bsp);
-    fprintf('  spanForce=%d  CoM_y=%+.3e m  (out-of-plane CoM is curvature''s signature)\n', ...
-            r.seedParams.enableSpanForce, r.seedParams.massParams.com_t(2,1));
+    fprintf('  CoM_y=%+.3e m  (out-of-plane CoM is curvature''s signature)\n', ...
+            r.seedParams.massParams.com_t(2,1));
 
     % --- Combined mode animation (follow-cam shows the bent strips) ---------
     vfile = fullfile(cfg.animDir, [char(name) '.mp4']);

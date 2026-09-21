@@ -12,9 +12,10 @@
 %   C. CURVED SANITY -- a symmetric bowl: CoM stays on the symmetry axes but
 %      shifts in +y (matching an independent hand calculation), I_G stays
 %      symmetric positive-definite, and total mass is conserved.
-%   D. TOGGLES -- the planar span-force hack switches itself off for a curved
-%      seed (on for planar/twist, cfg override wins), and the general per-strip
-%      added-mass form reduces exactly to the flat form on a flat seed.
+%   D. TOGGLES -- each model stamps its own switch set (planar: span force on,
+%      added-mass rate off; shape3d: edge drag + added-mass rate on, no span-force
+%      switch), a cfg override wins, and the general per-strip added-mass form
+%      reduces exactly to the flat form on a flat seed.
 %
 % A "flat" curvature profile (@(s) 0*s) is used for A and B: curvature is
 % PRESENT (so the curved-mass path runs) but zero (so the geometry is flat).
@@ -76,16 +77,21 @@ fprintf('C) bowl: CoM=[%.1e %.3e %.1e], hand-calc dy %.1e, symErr %.1e, eig>0 %d
 fprintf('   (curvature changes the inertia by %.1f%% vs flat)\n', ...
         100*max(abs(IC - spB.massParams.I_G_t(:,:,1)),[],'all')/max(abs(spB.massParams.I_G_t(:,:,1)),[],'all'));
 
-%% D. Physics toggles: span-force default + added-mass reduction
-% The planar span-force hack must switch itself OFF for a CURVED seed (its
-% spanwise force now comes from geometry) but stay ON for planar/twist, and a
-% cfg override must win. The general added-mass form must reduce EXACTLY to the
-% flat form on a flat seed -- including with an out-of-plane nut, since the
-% (d x n) term drops any offset parallel to the strip normal.
+%% D. Physics toggles: per-model switch sets + added-mass reduction
+% Each model must stamp its OWN switch set. Planar keeps the span force and has
+% the added-mass rate OFF (frozen reference). shape3d -- flat, twisted or curved
+% alike -- has edge drag and the added-mass rate ON, and carries NO span-force
+% switch at all (retired in phase 4; with it went the old curved-seed special
+% case). A cfg override must win. The general added-mass form must still reduce
+% EXACTLY to the flat form on a flat seed -- including with an out-of-plane nut,
+% since the (d x n) term drops any offset parallel to the strip normal.
 bT = base;  bT.twist = @(z) (deg2rad(20)/hs) * z;   spT = buildSeedParams(bT, cfg3);
-cfgOv = cfg3;  cfgOv.enableSpanForce = true;
+cfgOv = cfg3;  cfgOv.enableEdgeDrag = false;
 spCov = buildSeedParams(bC, cfgOv);
-okD1 = spP.enableSpanForce && spT.enableSpanForce && ~spC.enableSpanForce && spCov.enableSpanForce;
+is3dSet = @(s) isfield(s,'enableEdgeDrag') && s.enableEdgeDrag ...
+               && s.enableAddedMassRate && ~isfield(s,'enableSpanForce');
+okD1 = spP.enableSpanForce && ~spP.enableAddedMassRate && ~isfield(spP,'enableEdgeDrag') ...
+       && is3dSet(spT) && is3dSet(spC) && ~spCov.enableEdgeDrag;
 
 spF = buildSeedParams(base, cfg3);                 % flat shape3d (identity frames)
 bN  = base;  bN.nutPos_t = [0; -a; 0];   spN = buildSeedParams(bN, cfg3);  % out-of-plane nut
@@ -100,8 +106,10 @@ for q = 1 : numel(flatSeeds)
 end
 okD2 = dAM < tolRel;
 okD = okD1 && okD2;
-fprintf('D) toggles: spanForce [planar %d twist %d curved %d override %d], addedMass reduction %.1e -> %s\n', ...
-        spP.enableSpanForce, spT.enableSpanForce, spC.enableSpanForce, spCov.enableSpanForce, dAM, pf(okD));
+fprintf(['D) toggles: planar [spanForce %d, AdotRate %d]  shape3d twist/curved ' ...
+         '[edgeDrag %d/%d, AdotRate %d/%d]  override edgeDrag->%d, addedMass reduction %.1e -> %s\n'], ...
+        spP.enableSpanForce, spP.enableAddedMassRate, spT.enableEdgeDrag, spC.enableEdgeDrag, ...
+        spT.enableAddedMassRate, spC.enableAddedMassRate, spCov.enableEdgeDrag, dAM, pf(okD));
 
 %% Verdict
 if okA && okB && okC && okD
