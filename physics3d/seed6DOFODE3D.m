@@ -34,19 +34,23 @@ function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 % The planar seed6DOFODE keeps all of the above, unchanged, as the frozen
 % reference model. See the README "Model cleanup" roadmap section.
 %
-% PHASE 4 -- the span force went too (measured inert, wrong shape), and two
-% physically-grounded terms came in, each behind a switch that setupSeedShape3D
-% turns ON by default:
-%   * enableEdgeDrag      -- pure drag on a seed sliding along its span, which
+% PHASE 4 -- the span force went (it was the only spanwise resistance, with the
+% wrong law), and three terms came in, each behind a switch set by setupSeedShape3D:
+%   * enableEdgeDrag      ON  -- pure drag on a seed sliding along its span, which
 %     the strips cannot see at all (computeEdgeDrag). Section 3b.
-%   * enableAddedMassRate -- the Adot*v term of the translational EOM: spinning
-%     changes the entrained fluid's momentum even at constant speed. Lives in the
-%     shared core, rigidBody6DOF; off there by default so planar stays frozen.
+%   * enableAddedMassRate OFF -- the Adot*v term of the translational EOM. Lives in
+%     the shared core, rigidBody6DOF.
+%   * enableLEV           OFF -- leading-edge-vortex vortex lift, per strip, inside
+%     the strip loop (computeLEVForce, constants from levPlanformConstants), with
+%     two modelling switches: levApplicationPoint = 'colocated' | 'forward' chooses
+%     where it acts, and lev.rossbyDefinition = 'kinematic' | 'geometric' chooses
+%     whether the Rossby gate reads the strip's actual revolution rate or just its
+%     distance from the CoM.
 %
 % FLAT EQUIVALENCE: with the planar extras disabled (enableSpanForce,
-% enableTxDamping, enableNormalSpinDamping false on the planar side) and the two
-% phase-4 terms disabled here (enableEdgeDrag, enableAddedMassRate false), this
-% still reduces EXACTLY to seed6DOFODE on a flat seed -- see
+% enableTxDamping, enableNormalSpinDamping false on the planar side) and the
+% phase-4 terms disabled here (enableEdgeDrag, enableAddedMassRate, enableLEV
+% false), this still reduces EXACTLY to seed6DOFODE on a flat seed -- see
 % testing/shape3d/testShape3DFlatEquivalence.m.
 %
 % Requires the 'shape3d' seedParams contract (see validateSeedParams): the planar
@@ -150,6 +154,23 @@ CT_all    = zeros(1, numStrips);
 CD_all    = zeros(1, numStrips);
 Fbody_all = zeros(3, numStrips);
 Tbody_all = zeros(3, numStrips);
+
+% --- LEV vortex lift (enableLEV, default OFF; see computeLEVForce) ---------
+% Everything LEV-related sits inside `if useLEV`, so with the switch off this RHS
+% is bit-for-bit what it was before the term existed.
+useLEV = isfield(seedParams, 'enableLEV') && seedParams.enableLEV;
+if useLEV
+    lev = seedParams.lev;                          % Kv, RoCrit, p, lambdaV,
+                                                   % rossbyDefinition (setupSeedShape3D)
+    if isfield(seedParams, 'levApplicationPoint')
+        levApp = seedParams.levApplicationPoint;   % 'colocated' | 'forward'
+    else
+        levApp = 'colocated';
+    end
+end
+CTlevAll = zeros(1, numStrips);   GlevAll  = zeros(1, numStrips);
+RolevAll = zeros(1, numStrips);   OmlevAll = zeros(1, numStrips);
+xAppAll  = zeros(1, numStrips);   FlevAll  = zeros(3, numStrips);
 
 % (The 2D rotational lift/damping is driven by spin about each strip's LOCAL span
 % axis; that is computed per strip inside the loop as spanDir(:,i)'*omega. For a
@@ -267,6 +288,33 @@ for i = 1 : numStrips
 
     dTau = tau_transl + tau_rotLift + tau_spin;
 
+    % --- LEV vortex lift on this strip (computeLEVForce has the equations).
+    % Both Rossby-gate inputs are formed here, per strip, every step (so a moving
+    % CoM is tracked) and lev.rossbyDefinition picks which one the gate uses:
+    %   rAxis    the strip's SPANWISE distance from the CoM along its local span
+    %            axis -- its radius about a spin axis through the CoM ('geometric').
+    %   omegaRev the rate at which the strip REVOLVES about the CoM, |omega x s_hat|
+    %            ('kinematic', the default). The omega component ALONG s_hat pitches
+    %            the strip about its own span axis instead of carrying it around, so
+    %            it is excluded -- which is what makes a fluttering (tumbling) seed
+    %            read as non-revolving.
+    % The force is formed in the strip frame, rotated to body like F_transl, and
+    % applied at the switchable point x_app along the local chord from the strip
+    % centre.
+    if useLEV
+        rAxis    = abs(sDir.' * (pGeo - mp.c));
+        omegaRev = norm(cross(omega, sDir));
+        [F_lev_L, xApp, levInfo] = computeLEVForce(vChord, vNormal, alpha, chord(i), dz(i), ...
+                                      rAxis, omegaRev, coeffs.l_cp_frac, lev, levApp, rhoFluid);
+        F_lev = cDir*F_lev_L(1) + nDir*F_lev_L(2) + sDir*F_lev_L(3);
+        r_lev = (pGeo + xApp*cDir) - mp.c;
+        dF    = dF   + F_lev;
+        dTau  = dTau + cross(r_lev, F_lev);
+        CTlevAll(i) = levInfo.CT_lev;   GlevAll(i)  = levInfo.G;
+        RolevAll(i) = levInfo.Ro;       OmlevAll(i) = levInfo.Omega;
+        xAppAll(i)  = xApp;             FlevAll(:,i) = F_lev;
+    end
+
     % --- accumulate
     F_aero_body = F_aero_body + dF;
     tau_body    = tau_body    + dTau;
@@ -323,6 +371,16 @@ if nargout > 1
     intermediates.r_edgeArm_body  = r_edgeArm_body;   % 3x1 area centroid relative to CoM, body
     intermediates.vSpan_edge      = vSpan_edge;       % spanwise velocity at the centroid (m/s)
     intermediates.F_addedMassRate = core.F_addedMassRate; % 3x1 Adot*v, inertial (0 if off)
+    intermediates.tau_addedMass   = core.tau_addedMass;   % 3x1 v x (A v), body (0 if off)
+    % LEV vortex lift, per strip (all zero when enableLEV is off). F_strip_body and
+    % tau_strip_body above already INCLUDE it when it is on.
+    intermediates.CT_lev          = CTlevAll;         % 1xM gated, signed vortex-lift coefficient
+    intermediates.G_lev           = GlevAll;          % 1xM Rossby gate G(Ro)
+    intermediates.Ro_lev          = RolevAll;         % 1xM local Rossby number (Inf where
+                                                      %     the strip is not revolving)
+    intermediates.Omega_lev       = OmlevAll;         % 1xM strip revolution rate |w x s| (rad/s)
+    intermediates.xApp_lev        = xAppAll;          % 1xM chordwise application offset (m)
+    intermediates.F_lev_body      = FlevAll;          % 3xM vortex-lift force, body frame
     intermediates.tau_body        = tau_body;         % 3x1 total torque, body
     intermediates.a_inertial      = core.a_inertial;  % 3x1 linear acceleration
     intermediates.alpha_body      = core.alpha_body;  % 3x1 angular acceleration

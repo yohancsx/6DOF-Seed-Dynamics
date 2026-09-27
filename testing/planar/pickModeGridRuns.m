@@ -3,6 +3,12 @@
 % whose flight you want to watch, then batch-render a combined mode animation
 % for each pick.
 %
+% MODEL-AGNOSTIC despite living in planar/: the re-integration dispatches through
+% seedRHS on the saved cfg.shapeModel, so this works on a planar grid
+% (Mode_Grid_results.mat) and equally on the 3D suite's mode_grid_3D.mat. Point
+% resultsFile at either. It is the intended way to hand-check the classifier:
+% click a cell, watch what the seed actually does, compare to the label.
+%
 % The grid only stores the mode LABEL per cell (the trajectories would be huge),
 % so this script RE-INTEGRATES the dynamics at each selected nut position -- same
 % cfg, release, and physics the grid used -- before handing (t, x) to
@@ -22,7 +28,7 @@ addpath(helpersFolder);
 % NOTE: physics/ and visualization/ assumed on the MATLAB path.
 
 % Saved results from runSeedModeGrid (chordFrac, spanFrac, modeIdx, cfg [, q0, omega0]).
-resultsFile = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\Mode Grid\Mode_Grid_results.mat";
+resultsFile = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\test_suite_3D\2026-09-24_194534_3D_core_plus_edge_drag\mode_grid_3D.mat";
 
 %% 1. Open the phase map and click the runs to animate
 D = load(resultsFile);
@@ -86,7 +92,7 @@ end
 fprintf('Selected %d run(s). Now set outputFolder in Section 2 and run it.\n', size(sel,1));
 
 %% 2. Generate animations for the selected runs  -- EDIT outputFolder
-outputFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\Mode Grid\Mode Grid Picks";
+outputFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\test_suite_3D\2026-09-24_194534_3D_core_plus_edge_drag\selectedModeGridRuns";
 if ~exist(outputFolder, 'dir'); mkdir(outputFolder); end
 
 % Animation options (forwarded to animateModeTrajectory). playbackSpeed<1 = slow-mo.
@@ -119,7 +125,12 @@ function animateGridRun(iz, ix, D, baseBsp, q0, omega0, outputFolder, animOpts)
     sp = buildSeedParams(bsp, cfg);
     x0 = [zeros(3,1); q0(:); zeros(3,1); omega0(:)];
     odeOpts = odeset('RelTol', cfg.odeRelTol, 'AbsTol', cfg.odeAbsTol);
-    [t, x] = ode45(@(tt,xx) seed6DOFODE(tt, xx, sp), cfg.tspan, x0, odeOpts);
+    % seedRHS, not a hardcoded seed6DOFODE: the saved cfg carries its shapeModel,
+    % so a grid produced under shape3d re-integrates under the 3D RHS and a planar
+    % grid under the planar one. Hardcoding the planar RHS here would have silently
+    % animated DIFFERENT physics from the one that labelled the cell.
+    rhs = seedRHS(sp);
+    [t, x] = ode45(@(tt,xx) rhs(tt, xx, sp), cfg.tspan, x0, odeOpts);
 
     lbl = modeList{D.modeIdx(iz,ix)};
     tag = sprintf('chord%03.0f_span%03.0f_%s', 100*D.chordFrac(ix), 100*D.spanFrac(iz), lbl);

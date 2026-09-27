@@ -50,18 +50,23 @@ function info = validateSeedParams(seedParams)
 %
 % OPTIONAL (defaults applied by the RHS if absent): seedParams.aero, plus the
 % physics switches, which DIFFER BY MODEL:
-%   both models  : enableAddedMass3D, enableAddedMassRate (planar default OFF,
-%                  shape3d default ON -- it lives in the shared rigidBody6DOF)
+%   both models  : enableAddedMass3D, enableAddedMassRate, enableAddedMassMoment
+%                  (the last two default OFF in both; they are the two halves of
+%                  Kirchhoff's pair and both live in the shared rigidBody6DOF --
+%                  Adot*v in the force, v x (A*v) in the torque)
 %   planar only  : enableSpanForce, enableSpanGeomVelocity, enableSpanTorque,
 %                  enableSpanCOPMigration, enableSpanTorqueAttenuation,
 %                  enableTxDamping, enableNormalSpinDamping
-%   shape3d only : enableEdgeDrag (default ON)
+%   shape3d only : enableEdgeDrag (default ON), enableLEV (default OFF),
+%                  levApplicationPoint ('colocated' default | 'forward')
 % The planar-only switches gate terms removed from seed6DOFODE3D -- by the
 % Sep-2026 audit (Tx, Ty, the span torque with its migrating CoP and
 % reduced-frequency attenuation) and in phase 4 (the span force, replaced by edge
 % drag). setupSeedShape3D strips them from a shape3d struct, so carrying one is a
 % stale config rather than a silently inert knob. The frozen planar model keeps
-% all of them. A shape3d struct also carries .seedThickness (edge-drag area).
+% all of them. A shape3d struct also carries .seedThickness (edge-drag area) and
+% .lev (LEV constants AR, a0, Kp, Ki, Kv, RoCrit, p, lambdaV, plus the gate switch
+% rossbyDefinition = 'kinematic' default | 'geometric').
 %
 % INPUT
 %   seedParams : struct to check.

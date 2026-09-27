@@ -1,122 +1,106 @@
-%% Explore the candidate LEV (leading-edge vortex) term BEFORE implementing it
-% A self-contained PROTOTYPE: nothing here is wired into physics3d/. It evaluates
-% the candidate vortex-lift term on its own so the modelling choices can be seen
-% and argued over first. Four figures:
+%% Explore the LEV (leading-edge vortex) term -- plotted from the IMPLEMENTED code
+% Evaluates the shape3d model's LEV vortex-lift term on its own, straight from
+% physics3d/computeLEVForce and physics3d/levPlanformConstants, so the figures show
+% exactly what the model does when enableLEV is on. Five figures:
 %   1. the vortex-lift increment vs angle of attack, against the existing APW law
 %   2. the Rossby gate vs Rossby number, with where THIS seed's strips actually sit
 %   3. the gated increment over the whole (alpha, Ro) plane
-%   4. the centre-of-pressure question -- where the vortex force acts, which the
-%      literature does NOT settle (see "lambda_v" below)
+%   4. the two application points ('colocated' vs 'forward')
+%   5. the gate vs REVOLUTION RATE -- what the default (kinematic) gate reads
+% Figures are written OUTSIDE the repo (generated binaries are kept out of git).
 %
-% =========================================================================
-% THE FORM, AND WHERE IT COMES FROM
-% =========================================================================
-% Rezgui, Arroyo & Theunissen (2020), Aeronautical J. 124(1278):1236-1261,
-% doi:10.1017/aer.2020.25 -- adapting Polhamus (1966, NASA TN D-3767; 1971,
-% J. Aircraft 8(4):193-199, doi:10.2514/3.44254) to a samara blade section:
+% Every equation, its source, and every modelling choice is documented at its
+% point of use in computeLEVForce and levPlanformConstants. In brief:
 %
-%   (1)  C_L,p = K_p sin(a) cos^2(a)                       potential lift
-%   (3)  C_L,v = K_v [cos(a)/cos(Lambda)] sin^2(a)         vortex lift
-%   (4)  K_v   = K_p - K_p^2 K_i
-%   (5)  K_i   = d C_Di,p / d (C_L,p^2)                    induced-drag factor
-%   (7)  C_l(a) = C_L,p + C_L,v   taken directly as the 2D sectional value
+%   C_L,v = K_v sin^2(a) cos(a)          Rezgui, Arroyo & Theunissen (2020),
+%                                        Aeronautical J. 124(1278):1236-1261, eq. (3)
+%   K_v   = K_p - K_p^2 K_i               ibid. eq. (4); K_p Helmbold (1942),
+%                                        K_i = 1/(pi AR) Prandtl elliptic
+%   G     = 1/(1 + (Ro/Ro_crit)^p)        OUR construction (see below)
+%   Ro    = |v_ip|/(Omega c)  'kinematic' (DEFAULT) Rossby's own ratio;
+%                                        Omega = |omega x s_hat|, the strip's
+%                                        revolution rate about the CoM
+%         = r/c               'geometric' the pure-revolution special case, kept
+%                                        as a toggle (lev.rossbyDefinition)
+%   x_app = l_cp*c            'colocated' Snyder & Lamar (1972), NASA TN D-6994
+%   x_app = lambda_v (c/2) cos(a) 'forward'  no direct citation
 %
-% Lambda is sweep (0 here). K_p and K_i come from lifting-surface theory for the
-% planform (they used the Tornado VLM). KEY POINT: in this formulation K_v is NOT
-% a free tuning constant -- it is derived from the planform. Only the ADDITION,
-% eq. (3), is new relative to this model: the existing APW law already supplies a
-% potential-flow lift, so adding eq. (1) as well would double-count it.
+% ON THE ROSSBY NUMBER -- verified against Lentink & Dickinson (2009), J. Exp. Biol.
+% 212:2705-2719. They define Ro = Rg/c (radius of gyration over MEAN chord) for
+% their robot experiments, observing a stable LEV on a revolving wing at Ro = 2.9,
+% an unstable one on a translating wing (Ro = inf), and force coefficients that
+% change with Ro over 2.9 -> 3.6 -> 4.4. For the survey of real wings they switch
+% to the TIP radius, Ro = R/c (their Eq. 6, equal to the single-wing aspect ratio),
+% and find wings cluster near 3 -- which is Rg/c ~ 1.5 for insects. They give NO
+% critical Rossby number. So Ro_crit = 3 is an anchor at the right scale, not a
+% published threshold, and p has no literature value. Rezgui et al. apply the vortex
+% lift everywhere, ungated (equivalent to G = 1).
 %
-% Rezgui et al. validate the lift curve against Azuma & Yasuda's samara data for
-% alpha in 0-25 deg only. The vortex term peaks at atan(sqrt(2)) = 54.7 deg, so
-% anything past ~25 deg is extrapolation. They do NOT gate by Rossby number and
-% do NOT give a centre of pressure for the vortex force -- both are additions
-% made here and are flagged as such below.
-%
-% =========================================================================
-% DEFINITIONS FOR THIS MODEL  (each is a modelling choice -- alternatives noted)
-% =========================================================================
-% r        Radius of strip i from the seed's rotation axis.
-%          OUR CHOICE: spanwise distance from the strip's geometric centre to the
-%          seed CoM, along the local span axis:  r_i = |s_i . (p_i - c_CoM)|
-%          (flat seed: |z_i - c_z|). Geometric, per-strip, time-invariant for a
-%          fixed CoM, tracks a moving one.
-%          ALTERNATIVES: Lentink & Dickinson (2009, JEB 212:2705-2719) use ONE
-%          radius per wing -- the second-moment radius of gyration measured from
-%          the rotation axis, R2 = sqrt(int r^2 c dr / int c dr). Or: the
-%          perpendicular distance to the INSTANTANEOUS spin axis, d x omega_hat.
-%          KNOWN WEAKNESS of our choice: it is purely geometric, so it grants a
-%          "stable LEV" even when the seed is not actually revolving (e.g. pure
-%          fluttering). A kinematic gate would fix that -- see the open questions.
-% c        Local strip chord c_i (0.015 m for every strip of the rectangular test
-%          seed). Lentink & Dickinson use the mean chord; for a tapered wing the
-%          local and mean chords differ, and so would the gate.
-% Ro       LOCAL Rossby number Ro_i = r_i / c_i. Note this is not the same
-%          quantity as Lentink & Dickinson's GLOBAL Ro = R2/c_mean: ours varies
-%          along the span, theirs is one number per wing.
-% Ro_crit  3. Lentink & Dickinson: Ro ~ 3 is the convergent value across insects,
-%          seeds and birds; Ro = 2.9 gives a compact stable spiral LEV, Ro = inf
-%          (a purely translating wing) an unstable one.
-% p        Steepness of the roll-off G(Ro) = 1 / (1 + (Ro/Ro_crit)^p).
-%          NO LITERATURE VALUE. Lentink & Dickinson report a threshold, not a
-%          transfer function. p = 2 is gentle (G = 0.20 at 2*Ro_crit), p = 8 is
-%          nearly a step. Purely a modelling choice -- figure 2 shows several.
-% lambda_v Chordwise application point of the vortex force, as a fraction of the
-%          half-chord from the strip centre toward the LEADING edge:
-%               x_v = lambda_v * (c/2) * cos(alpha)
-%          The cos(alpha) points it upwind and sends it to zero at broadside.
-%          THE LITERATURE CONFLICTS WITH THE MOTIVATION FOR THIS TERM. Snyder &
-%          Lamar (1972, NASA TN D-6994) find the vortex-lift load distribution on
-%          low-AR delta wings is "similar in shape to that of the potential-flow
-%          longitudinal loading" -- i.e. the vortex force acts at about the SAME
-%          centre of pressure, not forward of it. So two options are plotted:
-%            A  co-located with the existing APW centre of pressure  (no shift)
-%            B  forward at lambda_v = 0.5                            (~0.28c aft
-%               of the leading edge; physically motivated for an UNSWEPT wing,
-%               but with no direct citation)
-% K_v      Derived, per eq. (4), from K_p and K_i. Estimated here with a
-%          finite-wing (Helmbold) lift slope and elliptic induced drag,
-%          K_i = 1/(pi*AR). K_p and K_i MUST come from the same model: mixing the
-%          2D APW slope (CL1 = 5.2) with a 3D K_i is inconsistent, and at low AR
-%          it drives K_v to ~0 spuriously (printed below). AR itself is a choice:
-%          the whole seed S/c, or one blade measured from the CoM.
+% WHY THE DEFAULT IS THE KINEMATIC FORM. Both of their definitions are RADIUS over
+% chord, which is the special case of Rossby's ratio U/(Omega L) for a wing in PURE
+% REVOLUTION, where U = Omega*R. What they are actually scaling is the Coriolis and
+% centripetal accelerations against the fluid's convective acceleration, and that
+% general ratio is |v|/(Omega c). Read geometrically, r/c says a strip 3 chords out
+% has a stable vortex whether or not the seed is revolving -- so a parachuting,
+% gliding or fluttering seed gets full vortex lift, which it cannot hold. Read
+% kinematically, the same strip gets Ro -> inf, G -> 0 when the seed stops
+% revolving, and the two agree EXACTLY when it does revolve (testNewPhysicsTerms
+% L3b/L3c). Figures 2-4 below are the same for either reading -- G(Ro) is one
+% curve; only the meaning of Ro changes. Figure 5 shows what that means in Omega.
 
 root = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
-addpath(fullfile(root,'physics','aero'));
+addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
+        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
+        fullfile(root,'physics3d'), fullfile(root,'testing','helpers'));
 
-% Figures go OUTSIDE the repo (generated binaries are kept out of git).
 outDir = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\LEV Exploration";
 if ~exist(outDir,'dir'); mkdir(outDir); end
 
-S = 0.050;  c = 0.015;
+% --- The test seed, built the normal way so the constants are the model's own --
+S = 0.050;  c = 0.015;  th = 0.002;  rho = 1.225;
+b.seedShape = polyshape([-S/2,S/2,S/2,-S/2],[-c/2,-c/2,c/2,c/2]);
+b.seedDensity = 65*th;  b.seedThickness = th;  b.numStrips = 10;
+b.tSamples = 0;  b.nutPos_t = [0;0;0];  b.nutMass_t = 75e-6;
+sp  = buildSeedParams(b, struct('rhoFluid',rho,'g',9.81,'shapeModel','shape3d'));
+lev = sp.lev;
+dz  = sp.strips.dz(1);
+
 aDeg = linspace(0, 90, 361);  a = deg2rad(aDeg);
 
-%% K_v from the planform -- and its sensitivity to the modelling choices
-fprintf('\n=== K_v = K_p - K_p^2 K_i  (Rezgui et al. 2020, eq. 4) ===\n');
-fprintf('%-34s %-7s %-9s %-9s %-9s\n','aspect-ratio choice','AR','K_p','K_i','K_v');
-ARs   = {'one blade, centred CoM  (S/2)/c', (S/2)/c ; ...
-         'whole seed               S/c',    S/c     ; ...
-         'real samara (Rezgui)',            4.38    };
-a0 = 2*pi;
+%% K_v for this seed, and its sensitivity to what "the wing" means
+fprintf('\n=== LEV constants the model uses for this seed (seedParams.lev) ===\n');
+fprintf('  AR = %.3f (total span / mean chord)  K_p = %.3f  K_i = %.4f  K_v = %.3f\n', ...
+        lev.AR, lev.Kp, lev.Ki, lev.Kv);
+fprintf('  Ro_crit = %g   p = %g   lambda_v = %g   rossbyDefinition = %s\n', ...
+        lev.RoCrit, lev.p, lev.lambdaV, lev.rossbyDefinition);
+fprintf('\n  Other readings of the aspect ratio (override with cfg.lev.AR):\n');
+fprintf('  %-38s %-7s %-9s %-9s %-9s\n','aspect-ratio choice','AR','K_p','K_i','K_v');
+ARs = {'one half-span blade from a centred CoM', (S/2)/c ; ...
+       'whole seed (the model default)',         S/c     ; ...
+       'Rezgui et al.''s real samara',            4.38    };
 Kv = zeros(size(ARs,1),1);
 for k = 1:size(ARs,1)
-    AR = ARs{k,2};  x = a0/(pi*AR);
-    Kp = a0 / (sqrt(1 + x^2) + x);          % Helmbold finite-wing lift slope
-    Ki = 1/(pi*AR);                         % elliptic induced-drag factor
-    Kv(k) = Kp - Kp^2*Ki;
-    fprintf('%-34s %-7.2f %-9.3f %-9.4f %-9.3f\n', ARs{k,1}, AR, Kp, Ki, Kv(k));
+    L = levPlanformConstants(ARs{k,2});  Kv(k) = L.Kv;
+    fprintf('  %-38s %-7.2f %-9.3f %-9.4f %-9.3f\n', ARs{k,1}, L.AR, L.Kp, L.Ki, L.Kv);
 end
 Kp2D = 5.2;  Ki = 1/(pi*(S/2)/c);
-fprintf(['  INCONSISTENT mix (2D APW slope CL1=5.2 with a 3D K_i, AR=%.2f):' ...
-         ' K_v = %.3f  <- spurious, do not use\n'], (S/2)/c, Kp2D - Kp2D^2*Ki);
-KvRef = Kv(2);    % reference for the maps: whole-seed AR
+fprintf(['  INCONSISTENT mix (2D APW slope CL1 = 5.2 with a 3D K_i, AR = %.2f):' ...
+         ' K_v = %.3f  <- why K_p and K_i must share one wing model\n'], (S/2)/c, Kp2D - Kp2D^2*Ki);
 
-%% Existing APW law, for comparison
+% Evaluate the IMPLEMENTED term: unit in-plane speed, flow at angle a.
+% Figures 1-4 sweep Ro directly, so they drive the term through the GEOMETRIC
+% definition (Ro = r/c at unit speed); G(Ro) is the same function either way, and
+% this keeps "ungated" (r = 0 -> G = 1) available as a reference curve. Figure 5
+% uses the model's actual default, the kinematic definition.
+levGeo  = lev;  levGeo.rossbyDefinition = 'geometric';
+levWith = @(L, KvVal) setfield(L, 'Kv', KvVal); %#ok<SFLD>
+CTlev = @(L, aa, r) arrayfun(@(q) getfield(nthOut(3, @computeLEVForce, ...
+            cos(q), sin(q), q, c, dz, r, 0, 0, L, 'colocated', rho), 'CT_lev'), aa);
+
 co   = computeAeroCoeffs(a, []);
 CT0  = co.CT;   lcp0 = co.l_cp_frac;
-vort = @(Kv, a) Kv .* sin(a).^2 .* cos(a);      % eq. (3), Lambda = 0
 
-%% Figure 1 -- the increment vs alpha
+%% Figure 1 -- the increment vs alpha (ungated: r = 0 -> G = 1)
 f1 = figure('Name','LEV vs alpha','Color','w','Position',[60 60 820 520]);
 hold on; grid on;
 patch([0 25 25 0],[-0.2 -0.2 3.2 3.2],[0.9 0.95 0.9],'EdgeColor','none','FaceAlpha',0.6, ...
@@ -124,43 +108,50 @@ patch([0 25 25 0],[-0.2 -0.2 3.2 3.2],[0.9 0.95 0.9],'EdgeColor','none','FaceAlp
 plot(aDeg, CT0, 'k-', 'LineWidth',2, 'DisplayName','existing APW  C_T');
 cols = lines(3);
 for k = 1:numel(Kv)
-    plot(aDeg, vort(Kv(k),a), '--', 'Color',cols(k,:), 'LineWidth',1.4, ...
+    d = CTlev(levWith(levGeo, Kv(k)), a, 0);
+    plot(aDeg, d, '--', 'Color',cols(k,:), 'LineWidth',1.4, ...
          'DisplayName',sprintf('vortex increment, K_v=%.2f (AR %.2f)',Kv(k),ARs{k,2}));
-    plot(aDeg, CT0 + vort(Kv(k),a), '-', 'Color',cols(k,:), 'LineWidth',1.4, ...
+    plot(aDeg, CT0 + d, '-', 'Color',cols(k,:), 'LineWidth',1.4, ...
          'DisplayName',sprintf('APW + vortex, K_v=%.2f',Kv(k)));
 end
 xline(14,':','stall 14\circ','HandleVisibility','off','LabelVerticalAlignment','middle');
 xline(rad2deg(atan(sqrt(2))),':','vortex peak 54.7\circ','HandleVisibility','off', ...
       'LabelVerticalAlignment','middle');
 xlabel('angle of attack \alpha (deg)'); ylabel('lift coefficient');
-title('Candidate LEV vortex-lift increment (G = 1, i.e. ungated)');
+title('LEV vortex-lift increment, from computeLEVForce (ungated, G = 1)');
 legend('Location','northwest','FontSize',8); ylim([-0.2 3.2]);
-exportgraphics(f1, fullfile(outDir,'LEV_1_vs_alpha.png'),'Resolution',140);
+drawnow; exportgraphics(f1, fullfile(outDir,'LEV_1_vs_alpha.png'),'Resolution',140);
 
 %% Figure 2 -- the Rossby gate, and where this seed's strips sit
-RoCrit = 3;  Ro = linspace(0, 8, 400);  ps = [2 4 8];
+Ro = linspace(0, 8, 400);  ps = [2 4 8];
 f2 = figure('Name','Rossby gate','Color','w','Position',[80 80 820 460]);
 hold on; grid on;
-% per-strip Ro ranges for the two extreme configurations (10 strips)
-zS = linspace(-S/2, S/2, 10);
-RoCentred = abs(zS)/c;          RoOffset = abs(zS + 0.06)/c;
+zS = sp.strips.zgc_body;
+RoCentred = abs(zS)/c;          RoOffset = abs(zS - 0.06)/c;
 patch([min(RoCentred) max(RoCentred) max(RoCentred) min(RoCentred)],[0 0 1.05 1.05], ...
       [0.85 0.93 1],'EdgeColor','none','FaceAlpha',0.7,'DisplayName','strips, centred CoM (collapse cases)');
 patch([min(RoOffset) max(RoOffset) max(RoOffset) min(RoOffset)],[0 0 1.05 1.05], ...
       [1 0.9 0.85],'EdgeColor','none','FaceAlpha',0.7,'DisplayName','strips, nut at 1.2S (autorotation)');
 for p = ps
-    plot(Ro, 1./(1+(Ro/RoCrit).^p), 'LineWidth',1.8, 'DisplayName',sprintf('p = %d',p));
+    Lp = levGeo;  Lp.p = p;
+    G  = arrayfun(@(r) getfield(nthOut(3, @computeLEVForce, 1, 1, pi/4, c, dz, r*c, 0, 0, Lp, ...
+                  'colocated', rho), 'G'), Ro);
+    plot(Ro, G, 'LineWidth',1.8, 'DisplayName',sprintf('p = %d%s', p, repmat(' (default)',1,p==lev.p)));
 end
-xline(RoCrit,'k--','Ro_{crit} = 3','HandleVisibility','off');
-xlabel('local Rossby number  Ro_i = r_i / c_i'); ylabel('gate  G(Ro)');
-title('Rossby gate: how much of the vortex lift a strip is allowed');
+xline(lev.RoCrit,'k--','Ro_{crit} = 3 (anchor, not a published threshold)','HandleVisibility','off', ...
+      'LabelVerticalAlignment','middle');
+xlabel('local Rossby number  Ro_i   (kinematic |v_i|/(\Omega_i c_i), or geometric r_i/c_i)');
+ylabel('gate  G(Ro)');
+title({'Rossby gate: how much of the vortex lift a strip is allowed', ...
+       'one curve for either definition -- the shaded bands are the GEOMETRIC reading'});
 legend('Location','northeast','FontSize',8); ylim([0 1.05]);
-exportgraphics(f2, fullfile(outDir,'LEV_2_rossby_gate.png'),'Resolution',140);
+drawnow; exportgraphics(f2, fullfile(outDir,'LEV_2_rossby_gate.png'),'Resolution',140);
 
-%% Figure 3 -- gated increment over (alpha, Ro)
-pRef = 4;
-[AA, RR] = meshgrid(a, Ro);
-dCT = (1./(1+(RR/RoCrit).^pRef)) .* vort(KvRef, AA);
+%% Figure 3 -- gated increment over (alpha, Ro), at the model defaults
+dCT = zeros(numel(Ro), numel(a));
+for iR = 1:numel(Ro)
+    dCT(iR,:) = CTlev(levGeo, a, Ro(iR)*c);
+end
 f3 = figure('Name','Gated increment','Color','w','Position',[100 100 820 520]);
 imagesc(aDeg, Ro, dCT); set(gca,'YDir','normal'); colorbar;
 hold on;
@@ -168,45 +159,90 @@ yline(max(RoCentred),'w--','centred-CoM strips below','LabelHorizontalAlignment'
 yline(min(RoOffset),'w:','offset-CoM strips above','LabelHorizontalAlignment','left');
 xline(25,'w-','validated \leq 25\circ');
 xlabel('angle of attack \alpha (deg)'); ylabel('local Rossby number Ro');
-title(sprintf('Gated vortex-lift increment  \\DeltaC_T = G(Ro)K_v sin^2\\alpha cos\\alpha   (K_v=%.2f, p=%d)', KvRef, pRef));
-exportgraphics(f3, fullfile(outDir,'LEV_3_alpha_Ro_map.png'),'Resolution',140);
+title(sprintf('Gated vortex-lift increment G(Ro) K_v sin^2\\alpha cos\\alpha   (K_v = %.2f, p = %d)', ...
+      lev.Kv, lev.p));
+drawnow; exportgraphics(f3, fullfile(outDir,'LEV_3_alpha_Ro_map.png'),'Resolution',140);
 
-%% Figure 4 -- the centre-of-pressure question
-% Lift-weighted chordwise CoP, measured from mid-chord in units of chord
-% (+ = toward the leading edge). Illustrative: it weights the lift components
-% only, which is what the vortex term changes.
-lamV  = 0.5;
-xAPW  = lcp0;                                   % existing APW CoP (fraction of c)
-xVort = lamV * 0.5 * cos(a);                    % option B location (fraction of c)
-Lv    = vort(KvRef, a);
-cpA   = (CT0.*xAPW + Lv.*xAPW ) ./ (CT0 + Lv);  % option A: co-located -> unchanged
-cpB   = (CT0.*xAPW + Lv.*xVort) ./ (CT0 + Lv);  % option B: forward
-f4 = figure('Name','Centre of pressure','Color','w','Position',[120 120 820 500]);
+%% Figure 4 -- the two application points
+% Lift-weighted chordwise centre of pressure from mid-chord, in chords (+ toward
+% the leading edge). Illustrative: it weights the lift components only, which is
+% what the vortex term changes.
+Lv   = CTlev(levGeo, a, 0);
+xFwd = arrayfun(@(q) nthOut(2, @computeLEVForce, cos(q), sin(q), q, c, dz, 0, 0, 0, levGeo, ...
+                'forward', rho), a) / c;
+cpA  = (CT0.*lcp0 + Lv.*lcp0) ./ (CT0 + Lv);      % 'colocated': unchanged by construction
+cpB  = (CT0.*lcp0 + Lv.*xFwd) ./ (CT0 + Lv);      % 'forward'
+f4 = figure('Name','Application point','Color','w','Position',[120 120 820 500]);
 hold on; grid on;
 patch([0 25 25 0],[-0.05 -0.05 0.55 0.55],[0.9 0.95 0.9],'EdgeColor','none','FaceAlpha',0.6, ...
       'DisplayName','validated lift range (0-25 deg)');
-plot(aDeg, xAPW, 'k-', 'LineWidth',2, 'DisplayName','existing APW l_{cp}(\alpha)');
-plot(aDeg, cpA, '--', 'LineWidth',1.6, 'DisplayName','option A: vortex co-located (Snyder & Lamar 1972)');
-plot(aDeg, cpB, '-', 'LineWidth',1.6, 'DisplayName',sprintf('option B: vortex forward, \\lambda_v = %.1f', lamV));
-plot(aDeg, xVort, ':', 'LineWidth',1.2, 'DisplayName','option B vortex application point');
+plot(aDeg, lcp0, 'k-', 'LineWidth',2, 'DisplayName','existing APW l_{cp}(\alpha)');
+plot(aDeg, cpA, '--', 'LineWidth',1.6, 'DisplayName','''colocated'' (default; Snyder & Lamar 1972)');
+plot(aDeg, cpB, '-', 'LineWidth',1.6, 'DisplayName',sprintf('''forward'', \\lambda_v = %.1f (no citation)', lev.lambdaV));
+plot(aDeg, xFwd, ':', 'LineWidth',1.2, 'DisplayName','''forward'' vortex application point');
 yline(0.5,'k:','leading edge','HandleVisibility','off','LabelHorizontalAlignment','left');
 xlabel('angle of attack \alpha (deg)'); ylabel('CoP from mid-chord  (fraction of chord, + toward LE)');
-title({'Where does the vortex force act?', ...
-       'This choice decides whether LEV touches the pitch balance at all'});
+title({'levApplicationPoint: where the vortex force acts', ...
+       '''colocated'' adds lift only; ''forward'' also shifts the centre of pressure'});
 legend('Location','northeast','FontSize',8); ylim([-0.05 0.55]);
-exportgraphics(f4, fullfile(outDir,'LEV_4_centre_of_pressure.png'),'Resolution',140);
+drawnow; exportgraphics(f4, fullfile(outDir,'LEV_4_application_point.png'),'Resolution',140);
+
+%% Figure 5 -- the DEFAULT (kinematic) gate: how fast must the seed revolve?
+% Same gate, plotted against the quantity it actually reads. At a given in-plane
+% speed v the gate is half open at Omega* = v / (Ro_crit * c), so a seed that falls
+% faster needs to revolve proportionally faster to hold its vortex. Driven through
+% computeLEVForce with the model's own default definition.
+Om    = linspace(0, 250, 500);
+vSet  = [0.5 1 2 4 8];
+f5 = figure('Name','Kinematic gate','Color','w','Position',[140 140 860 500]);
+hold on; grid on;
+cmap = parula(numel(vSet)+1);
+for k = 1:numel(vSet)
+    Gk = arrayfun(@(w) getfield(nthOut(3, @computeLEVForce, vSet(k), 0, 0, c, dz, 0, w, 0, ...
+                  lev, 'colocated', rho), 'G'), Om);
+    plot(Om, Gk, 'LineWidth',1.8, 'Color',cmap(k,:), ...
+         'DisplayName',sprintf('|v| = %.1f m/s   (half open at \\Omega = %.0f rad/s)', ...
+                               vSet(k), vSet(k)/(lev.RoCrit*c)));
+end
+% Revolution rates this model actually reaches, measured as median |omega x s_hat|
+% over the second half of the reference trajectories (LEV off).
+xline(17.8, 'k--', 'autorotation, 17.8', 'HandleVisibility','off','LabelVerticalAlignment','bottom');
+xline(39.8, 'k:',  'tight spiral, 39.8', 'HandleVisibility','off','LabelVerticalAlignment','bottom');
+xlabel('strip revolution rate  \Omega = |\omega \times s| (rad/s)');
+ylabel('gate  G');
+title({sprintf('Kinematic gate (default): G vs revolution rate, c = %.0f mm, Ro_{crit} = %g, p = %g', ...
+       c*1e3, lev.RoCrit, lev.p), ...
+       'dashed/dotted: rates the model reaches in the reference cases (measured)'});
+legend('Location','southeast','FontSize',8); ylim([0 1.05]);
+drawnow; exportgraphics(f5, fullfile(outDir,'LEV_5_kinematic_gate.png'),'Resolution',140);
 
 %% Numbers worth reading off
 iA = @(d) find(aDeg >= d, 1);
-fprintf('\n=== At representative angles (K_v = %.2f, ungated) ===\n', KvRef);
-fprintf('%-8s %-10s %-10s %-9s %-11s %-11s\n','alpha','APW C_T','vortex','ratio','CoP A','CoP B');
+fprintf('\n=== At representative angles (model defaults, ungated) ===\n');
+fprintf('%-8s %-10s %-10s %-9s %-13s %-13s\n','alpha','APW C_T','vortex','ratio','CoP colocated','CoP forward');
 for d = [10 20 25 35 45 55 70]
     i = iA(d);
-    fprintf('%-8d %-10.3f %-10.3f %-9.2f %-+11.3f %-+11.3f\n', d, CT0(i), Lv(i), ...
+    fprintf('%-8d %-10.3f %-10.3f %-9.2f %-+13.3f %-+13.3f\n', d, CT0(i), Lv(i), ...
             Lv(i)/max(CT0(i),eps), cpA(i), cpB(i));
 end
-fprintf('\nGate G(Ro) at p = %d:\n', pRef);
+fprintf('\nGate at the defaults (Ro_crit = %g, p = %g):\n', lev.RoCrit, lev.p);
 for RoQ = [0.2 1.0 1.7 3.0 4.1 5.7]
-    fprintf('  Ro = %.1f -> G = %.3f\n', RoQ, 1/(1+(RoQ/RoCrit)^pRef));
+    fprintf('  Ro = %.1f -> G = %.3f\n', RoQ, 1/(1+(RoQ/lev.RoCrit)^lev.p));
 end
+fprintf(['\nWhat those Ro mean under the DEFAULT (kinematic) definition, c = %.0f mm:\n' ...
+         '  the gate is half open at Omega* = |v|/(Ro_crit*c), i.e.\n'], c*1e3);
+for vQ = [0.5 1 2 4 8]
+    fprintf('  |v| = %4.1f m/s -> Omega* = %6.1f rad/s (%.1f rev/s)\n', ...
+            vQ, vQ/(lev.RoCrit*c), vQ/(lev.RoCrit*c)/(2*pi));
+end
+fprintf(['  Measured in this model (median |omega x s|): autorotation 17.8 rad/s,\n' ...
+         '  tight spiral 39.8 rad/s, and ~0 for the parachuting/gliding/fluttering\n' ...
+         '  cases -- which the geometric definition would have given full vortex lift.\n']);
 fprintf('\nFigures written to %s\n', outDir);
+
+function out = nthOut(n, fn, varargin)
+% Return the n-th output of fn.
+    outs = cell(1, n);
+    [outs{:}] = fn(varargin{:});
+    out = outs{n};
+end

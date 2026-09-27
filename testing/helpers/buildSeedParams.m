@@ -18,11 +18,25 @@ function sp = buildSeedParams(bsp, cfg)
 % The two models honour DIFFERENT switch sets:
 %   planar  : enableSpanForce, enableSpanGeomVelocity, enableSpanTorque,
 %             enableSpanCOPMigration, enableSpanTorqueAttenuation, enableTxDamping,
-%             enableNormalSpinDamping, enableAddedMass3D, enableAddedMassRate
-%   shape3d : enableEdgeDrag, enableAddedMassRate, enableAddedMass3D
+%             enableNormalSpinDamping, enableAddedMass3D, enableAddedMassRate,
+%             enableAddedMassMoment
+%   shape3d : enableEdgeDrag, enableAddedMassRate, enableAddedMassMoment,
+%             enableAddedMass3D, enableLEV, levApplicationPoint
 % An override for a switch the chosen model does not honour is WARNED and
 % skipped, never silently applied -- an inert knob that looks live is worse than
 % a missing one.
+%
+% LEV TUNABLES (shape3d only): cfg.lev may override any of AR, Kp, Ki, Kv, RoCrit,
+% p, lambdaV, rossbyDefinition on the builder-computed seedParams.lev. Precedence,
+% so the constants stay consistent with Rezgui et al. (2020) eq. (4),
+% Kv = Kp - Kp^2*Ki:
+%   1. cfg.lev.AR re-derives Kp, Ki and Kv from the new aspect ratio;
+%   2. explicit cfg.lev.Kp / .Ki / .Kv values then win;
+%   3. if Kp or Ki was set but Kv was not, Kv is recomputed from eq. (4).
+% A resulting Kv <= 0 (possible only with inconsistent Kp and Ki) is warned.
+% cfg.lev.rossbyDefinition ('kinematic' default | 'geometric') selects which Rossby
+% number the gate reads; like levApplicationPoint it is validated here, at build
+% time, rather than deep inside an ode45 call.
 %
 % OUTPUT
 %   sp  : full seedParams struct accepted by seed6DOFODE (planar) or
@@ -45,7 +59,8 @@ function sp = buildSeedParams(bsp, cfg)
     switches = {'enableSpanForce', 'enableSpanTorque', 'enableSpanGeomVelocity', ...
                 'enableSpanCOPMigration', 'enableSpanTorqueAttenuation', ...
                 'enableTxDamping', 'enableNormalSpinDamping', 'enableAddedMass3D', ...
-                'enableAddedMassRate', 'enableEdgeDrag'};
+                'enableAddedMassRate', 'enableAddedMassMoment', 'enableEdgeDrag', ...
+                'enableLEV', 'levApplicationPoint'};
 
     % Switches the 3D model no longer honours: the Sep-2026 audit removed the
     % span torque, Tx and Ty; phase 4 retired the span force (measured inert) and
@@ -55,8 +70,8 @@ function sp = buildSeedParams(bsp, cfg)
                      'enableSpanTorqueAttenuation', 'enableTxDamping', ...
                      'enableNormalSpinDamping', 'enableSpanForce', ...
                      'enableSpanGeomVelocity'};
-    % ...and the one the planar model never had (edge drag lives in physics3d/).
-    deadInPlanar  = {'enableEdgeDrag'};
+    % ...and the ones the planar model never had (these terms live in physics3d/).
+    deadInPlanar  = {'enableEdgeDrag', 'enableLEV', 'levApplicationPoint'};
     isShape3D = strcmpi(sp.model, 'shape3d');
 
     for k = 1:numel(switches)
@@ -75,6 +90,64 @@ function sp = buildSeedParams(bsp, cfg)
                 continue
             end
             sp.(switches{k}) = cfg.(switches{k});
+        end
+    end
+
+    % The application point is a string switch: reject a typo here, at build
+    % time, rather than deep inside an ode45 call.
+    if isShape3D && isfield(sp, 'levApplicationPoint')
+        sp.levApplicationPoint = char(sp.levApplicationPoint);
+        if ~any(strcmp(sp.levApplicationPoint, {'colocated', 'forward'}))
+            error('buildSeedParams:badLevApplicationPoint', ...
+                  'levApplicationPoint must be ''colocated'' or ''forward'' (got ''%s'').', ...
+                  sp.levApplicationPoint);
+        end
+    end
+
+    % LEV tunables (see header for the precedence rules).
+    if isfield(cfg, 'lev') && ~isempty(cfg.lev)
+        if ~isShape3D
+            warning('buildSeedParams:deadSwitch', ...
+                'cfg.lev is ignored by the planar model (LEV exists only in the shape3d model).');
+        else
+            ov    = cfg.lev;
+            known = {'AR', 'Kp', 'Ki', 'Kv', 'RoCrit', 'p', 'lambdaV', 'rossbyDefinition'};
+            given = fieldnames(ov);
+            bad   = given(~ismember(given, known));
+            if ~isempty(bad)
+                warning('buildSeedParams:unknownLevField', ...
+                    'cfg.lev.%s is not an LEV parameter (known: %s); ignored.', ...
+                    strjoin(bad, ', cfg.lev.'), strjoin(known, ', '));
+            end
+            if isfield(ov, 'AR')                           % 1. re-derive from AR
+                base = levPlanformConstants(ov.AR);
+                for f = {'AR', 'a0', 'Kp', 'Ki', 'Kv'}
+                    sp.lev.(f{1}) = base.(f{1});
+                end
+            end
+            for f = intersect(given, setdiff(known, {'AR'})).'   % 2. explicit values win
+                sp.lev.(f{1}) = ov.(f{1});
+            end
+            if (isfield(ov, 'Kp') || isfield(ov, 'Ki')) && ~isfield(ov, 'Kv')
+                sp.lev.Kv = sp.lev.Kp - sp.lev.Kp^2 * sp.lev.Ki;  % 3. keep eq. (4)
+            end
+            if sp.lev.Kv <= 0
+                warning('buildSeedParams:nonPositiveKv', ...
+                    ['LEV Kv = %.3g <= 0 (Kp = %.3g, Ki = %.3g): the vortex lift would ' ...
+                     'oppose the flow. Kp and Ki must come from the same wing model.'], ...
+                    sp.lev.Kv, sp.lev.Kp, sp.lev.Ki);
+            end
+        end
+    end
+
+    % The Rossby definition is a string switch, like levApplicationPoint: reject a
+    % typo at build time rather than on the first RHS evaluation.
+    if isShape3D && isfield(sp, 'lev') && isfield(sp.lev, 'rossbyDefinition')
+        sp.lev.rossbyDefinition = char(sp.lev.rossbyDefinition);
+        if ~any(strcmp(sp.lev.rossbyDefinition, {'kinematic', 'geometric'}))
+            error('buildSeedParams:badRossbyDefinition', ...
+                  'lev.rossbyDefinition must be ''kinematic'' or ''geometric'' (got ''%s'').', ...
+                  sp.lev.rossbyDefinition);
         end
     end
 

@@ -44,8 +44,8 @@ cfg.bulkDensity = 65;      cfg.numStrips   = 10;      cfg.tSamples  = 0;
 cfg.nutMass     = 75e-6;   cfg.rhoFluid = 1.225;      cfg.g = 9.81;
 cfg.shapeModel  = 'shape3d';                          % <-- selects the 3D model
 % (No cfg.aero: the shape3d model has no span force or span torque left for
-%  C_span / C_span_torque to scale. Its physics defaults -- edge drag and the
-%  added-mass rate ON -- come from setupSeedShape3D.)
+%  C_span / C_span_torque to scale. Its physics defaults -- edge drag ON, the
+%  added-mass rate and LEV OFF -- come from setupSeedShape3D.)
 
 % --- Simulation / analysis ------------------------------------------------
 cfg.tspan = [0 12];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;

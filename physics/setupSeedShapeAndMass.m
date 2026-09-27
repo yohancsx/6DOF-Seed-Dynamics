@@ -362,6 +362,10 @@ seedParamsFull.enableAddedMassRate         = false;  % Adot*v in the translation
                                                       % OFF here so the frozen planar model
                                                       % stays byte-identical; the shape3d
                                                       % builder turns it ON (first principles).
+seedParamsFull.enableAddedMassMoment       = false;  % v x (A*v), Kirchhoff's rotational
+                                                      % partner of the term above, = APW
+                                                      % eq. (6.3)'s (m11-m22)vx'vy'. OFF here
+                                                      % for the same byte-identical reason.
 seedParamsFull.enableAddedMass3D           = false;  % OFF: use the flat-plate added-mass
                                                       % form. TRUE builds the full per-strip
                                                       % tensor from the strip normals -- only

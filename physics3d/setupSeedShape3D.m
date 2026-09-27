@@ -110,15 +110,79 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     seedParamsFull.seedThickness = bsp.seedThickness;
 
     % --- Physics switches for the shape3d model -------------------------------
-    % Both ON by default: each is either first principles or removes a
-    % known-unphysical exact zero. The frozen planar model keeps neither.
-    %   enableAddedMassRate -- the Adot*v term in the translational EOM
-    %                          (rigidBody6DOF). Measured at 31-43% of net force.
-    %   enableEdgeDrag      -- tip crossflow drag for spanwise sliding
-    %                          (computeEdgeDrag). Replaces the span force.
-    % Override either through cfg (buildSeedParams applies explicit overrides).
-    seedParamsFull.enableAddedMassRate = true;
-    seedParamsFull.enableEdgeDrag      = true;
+    % Override any of these through cfg (buildSeedParams applies explicit overrides).
+    %   enableEdgeDrag      ON  -- tip crossflow drag for spanwise sliding
+    %                              (computeEdgeDrag). Replaces the span force and
+    %                              removes a known-unphysical exact zero.
+    %   enableAddedMassRate   ON -- the Adot*v term in the translational EOM
+    %                              (rigidBody6DOF). The inertial-frame form of the
+    %                              anisotropic added-mass terms the APW reference
+    %                              model carries in its body-frame equations,
+    %                              eqs. (6.1)-(6.2) (testNewPhysicsTerms check A5).
+    %   enableAddedMassMoment ON -- v x (A*v), Kirchhoff's ROTATIONAL partner of
+    %                              that term and APW eq. (6.3)'s (m11-m22)vx'vy'.
+    %                              The moment that turns a body broadside-on to its
+    %                              own motion, so it is what makes an edge-on fall
+    %                              unstable. Also in rigidBody6DOF.
+    %
+    % Those two are ON by the rule that an added-mass term belongs in the model by
+    % default when it is derived from first principles AND present in the reference
+    % model. Both are: they are the two halves of Kirchhoff's pair (Lamb,
+    % Hydrodynamics ch. VI), and both appear in APW 2005 -- the rate term as the
+    % omega*v cross terms of eqs. (6.1)-(6.2), the moment as the first term of
+    % eq. (6.3). Taking one without the other was taking half of Kirchhoff. They
+    % also measurably improve the comparison with Hou et al. (2025): descent speed
+    % moves from 1.2-2.4 to 1.0-1.4 times sqrt(sigma g/rho), where the published
+    % prefactor is O(1). The FROZEN PLANAR builder keeps both OFF, so the planar
+    % reference stays byte-identical to every earlier run.
+    %   enableLEV           OFF -- leading-edge-vortex vortex lift (computeLEVForce).
+    %                              Empirical, and not yet validated for this seed.
+    %   levApplicationPoint 'colocated' -- where that vortex lift acts: at the APW
+    %                              centre of pressure (Snyder & Lamar 1972), or
+    %                              'forward' toward the leading edge (uncited).
+    % (The LEV's other modelling switch, which Rossby number the gate reads, lives
+    %  on the lev struct as .rossbyDefinition -- documented with the constants below.)
+    seedParamsFull.enableEdgeDrag        = true;
+    seedParamsFull.enableAddedMassRate   = true;
+    seedParamsFull.enableAddedMassMoment = true;
+    seedParamsFull.enableLEV             = false;
+    seedParamsFull.levApplicationPoint   = 'colocated';
+
+    % --- LEV constants for THIS seed (used only when enableLEV is true) -------
+    % Every number below is derived or chosen as follows (full provenance in
+    % levPlanformConstants and computeLEVForce):
+    %   AR      = total span / mean chord -- "the ratio between the span and chord
+    %             of the wing", as Rezgui et al. (2020) define it. The strip widths
+    %             dz are arc lengths, so AR is unchanged by curvature. Test seed: 3.33.
+    %   Kp, Ki  = Helmbold (1942) lift slope and Prandtl elliptic induced-drag
+    %             factor for that AR -> 3.557 and 0.0955 for the test seed.
+    %   Kv      = Kp - Kp^2*Ki, Rezgui et al. eq. (4) -> 2.349 for the test seed.
+    %   RoCrit  = 3   anchor for the Rossby roll-off. NOT a published threshold:
+    %                 Lentink & Dickinson (2009) show a stable LEV at Rg/c = 2.9 and
+    %                 note real wings cluster near tip-radius Ro ~ 3. Tunable.
+    %   p       = 4   sharpness of that roll-off. No literature value. Tunable.
+    %   lambdaV = 0.5 fraction of the half-chord toward the leading edge, used only
+    %                 by the 'forward' application point. No direct citation. Tunable.
+    %   rossbyDefinition = 'kinematic' -- WHICH Rossby number the gate reads:
+    %                 'kinematic' Ro = |v_ip|/(Omega c), Rossby's own ratio, with
+    %                     Omega = |omega x s_hat| the strip's revolution rate. Reduces
+    %                     exactly to r/c under pure revolution and shuts the gate for
+    %                     a seed that is not revolving at all. The default.
+    %                 'geometric' Ro = r/c, that special case applied as geometry.
+    %                     Kept so pre-kinematic runs stay reproducible; it grants a
+    %                     stable LEV to a parachuting or fluttering seed, which is
+    %                     the defect the kinematic form fixes.
+    % Override any of them with cfg.lev (e.g. cfg.lev.Kp, cfg.lev.RoCrit);
+    % buildSeedParams keeps Kv consistent with eq. (4) when Kp or Ki change.
+    stripChord = seedParamsFull.strips.chord;   stripDz = seedParamsFull.strips.dz;
+    levSpan    = sum(stripDz);
+    levChord   = sum(stripChord .* stripDz) / levSpan;
+    lev        = levPlanformConstants(levSpan / levChord);
+    lev.RoCrit  = 3;
+    lev.p       = 4;
+    lev.lambdaV = 0.5;
+    lev.rossbyDefinition = 'kinematic';
+    seedParamsFull.lev = lev;
 
     % --- Drop the switches the 3D RHS no longer honours --------------------
     % setupSeedShapeAndMass stamps the full planar switch set. seed6DOFODE3D no

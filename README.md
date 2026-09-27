@@ -50,6 +50,7 @@ Read that for the math; this README is orientation.
 ```
 6DOF Seed Dynamics/
 ├── Seed_Dynamics_ODE_Test.m       ← START HERE: script that runs a simple drop
+├── Seed_Dynamics_ODE_Test_3D.m    the same, for the shape3d model (+ twist/curvature)
 ├── physics/                       planar model + the shared, shape-agnostic core
 │   ├── seed6DOFODE.m              planar ODE right-hand side (the integrator function)
 │   ├── rigidBody6DOF.m            SHARED 6-DOF core: EOM + quaternion kinematics
@@ -117,6 +118,8 @@ Open and run **[`Seed_Dynamics_ODE_Test.m`](Seed_Dynamics_ODE_Test.m)**. It:
 
 Edit the seed geometry, nut position, and initial conditions at the top to explore.
 
+For the **3D model**, run **[`Seed_Dynamics_ODE_Test_3D.m`](Seed_Dynamics_ODE_Test_3D.m)** instead. Same five sections and the same scratchpad purpose, but it builds through `setupSeedShape3D` and integrates with `seed6DOFODE3D` (dispatched by `seedRHS`), adds `twist` / `curvature` profiles and the shape3d physics switches in one editable block — applied via `buildSeedParams`, so a switch this model does not honour warns instead of sitting inert — and prints the metrics and mode label after the run, so a single case can be checked by eye against the label the sweeps would give it.
+
 If you'd rather script it directly:
 
 ```matlab
@@ -150,10 +153,11 @@ non-planar ones, `helpers/` for machinery both share, and `baselines/` for snaps
 | `shape3d/runCurvatureTest.m` | Renders animations for three curved seeds (slight / large / asymmetric curvature). |
 | `baselines/generateModelBaseline.m` | Timestamped, git-stamped snapshot into `model_test_results/`. Runs the coarse mode grid, CoM-movement scenarios and sweep test suite under **both models on the same flat seed** (`mode_grid/` vs `mode_grid_3d/`, etc.), plus a `shape3d/` stage sweeping twist and curvature. Records both models' switch sets. |
 | `baselines/compareBaselineModels.m` | Diffs a snapshot's planar and shape3d stages: mode census, migration table (which mode became which), metric shifts on unchanged cells, a three-panel map with a changed-cell overlay, and the CoM/test-suite outcomes. Optionally regression-checks the planar stages against an older snapshot. **Re-run after every phase-4 change.** |
+| `shape3d/runSeedTestSuite3D.m` | **The one-click 3D suite**, and the counterpart of `planar/runSeedTestSuite.m` — edit the config block, run the file. Six stages: twist sweep, curvature sweep, the **nine 2D-parity groups** (nut mass, nut chord/span/diagonal, pitch, roll, yaw spin, asymmetry, strip convergence — the same `seedTestCases`/`runOneSeedCase` helpers the planar suite uses, so a group can be laid beside its planar twin), the three **moving-CoM scenarios** (the only stage exercising the time-varying mass path under this model), the mode grid **on our seed under the 3D model** (which exists nowhere else as a standalone script — `planar/runSeedModeGrid.m` calls `seed6DOFODE` directly and is planar-only), and the Hou et al. comparison, **on by default**. Stages A/B/D write one mode-coloured `.mp4` + final-frame `.png` per case via `helpers/animateCaseVideo.m`; `cfg.animWindow` limits each video to the last few seconds (where the settled behaviour is), since animation, not integration, dominates the wall clock. Built for switching physics terms off: set any `enable*` in the `sw` struct and every stage runs with it, applied through `cfg` so `buildSeedParams` warns rather than silently ignoring. Label each configuration and the run folders diff directly. Everything it writes carries a `3D` marker (`<timestamp>_3D_<label>/`, `mode_grid_3D.mat`, `summary_3D.txt`, …) under `Outputs/test_suite_3D`. |
 | `shape3d/testShape3DFlatEquivalence.m` | Regression: the 3D model must reduce **bit-identically** to the planar one for a flat seed. |
 | `shape3d/testCurvedMassProperties.m` | Regression: curved-seed mass/inertia (analytic check, planar reduction, bowl sanity, toggles). |
-| `shape3d/testNewPhysicsTerms.m` | Regression for the phase-4 terms: the added-mass rate (implementation vs formula vs finite difference, sign in the solve) and edge drag (zero/quadratic/odd/opposing, and the net spanwise force in a pure slide). |
-| `shape3d/exploreLEVTerm.m` | **Prototype only** — plots the candidate LEV vortex-lift term against α and Rossby number, and the centre-of-pressure options, before anything is implemented. States every modelling choice (`r`, `c`, `Ro`, `p`, `λ_v`, `K_v`) with its alternatives. Figures go outside the repo. |
+| `shape3d/testNewPhysicsTerms.m` | Regression for the phase-4 terms (22 checks): the added-mass rate (formula, finite difference, sign, and equivalence to Kirchhoff's body-frame form used by APW), edge drag (zero/quadratic/odd/opposing, net spanwise force in a pure slide), and LEV (planform constants, shape and sign vs APW, both Rossby gates — including that the kinematic one reduces exactly to the geometric one under pure revolution and shuts for a non-revolving seed — lift ⟂ velocity, both application points, exact wiring in the RHS, `cfg.lev` overrides). |
+| `shape3d/exploreLEVTerm.m` | Plots the **implemented** LEV term (straight from `computeLEVForce`) against α and Rossby number, the gate against both Rossby number and revolution rate, and the two application points; prints this seed's constants, their sensitivity to the aspect-ratio choice, and the spin rate needed to open the gate at a given descent speed. Figures go outside the repo. |
 | `baselines/generateModelBaseline.m` | Writes a timestamped, git-stamped snapshot (coarse mode grid + CoM suite + test suite + a config manifest) to `model_test_results/`. |
 
 Each script has an editable configuration block at the top. The suites add the paths they
@@ -234,11 +238,13 @@ The model and its validation targets draw on (not an exhaustive list):
 3. Andersen, A., Pesavento, U., & Wang, Z. J. (2005). *Analysis of transitions between
    fluttering, tumbling and steady descent of falling cards.* Journal of Fluid Mechanics,
    541, 91–104.
-4. *Aerodynamic significance of mass distribution on diverse samara descent behaviors.*
-   (2025). Communications Engineering.
-   [nature.com/articles/s44172-025-00465-8](https://www.nature.com/articles/s44172-025-00465-8)
+4. Hou, Z.-B., Zhang, J.-D., Li, Y.-D., Jia, Y.-X., & Huang, W.-X. (2025). *Aerodynamic
+   significance of mass distribution on diverse samara descent behaviors.* Communications
+   Engineering, 4, 129.
+   [doi:10.1038/s44172-025-00465-8](https://doi.org/10.1038/s44172-025-00465-8)
    — how CoM position maps to samara flight modes (autorotation, spiral tumbling, chaotic,
-   falling).
+   falling). **Their Fig. 2a is the phase-5 target map** (see the roadmap); experimental,
+   with immersed-boundary CFD at `Re = 560` for the vortex structures only.
 5. Lentink, D., Dickson, W. B., van Leeuwen, J. L., & Dickinson, M. H. (2009).
    *Leading-edge vortices elevate lift of autorotating plant seeds.* Science, 324, 1438–1440.
    — the leading-edge vortex that a strip-theory model does not capture.
@@ -410,11 +416,19 @@ measure what survives before adding anything new. The phases run in order; phase
      for flat-plate pitch stability at `Re ≈ 2000`. The governing quantity is the chordwise
      CoP-to-CoM relationship — i.e. `computeAeroCoeffs`' `l_cp(α)` law — not spanwise load.
      Full working, with sources: `derivations/` and the phase-4 pre-check page.
-  2. **LEV augmentation — NOT YET IMPLEMENTED; the case for it has weakened.** Explore it with
-     `testing/shape3d/exploreLEVTerm.m` (a self-contained prototype — nothing wired into
-     `physics3d/`). The exact form, from Rezgui, Arroyo & Theunissen (2020, *Aeronautical Journal*
-     124(1278):1236–1261, [doi:10.1017/aer.2020.25](https://doi.org/10.1017/aer.2020.25)), who adapt
-     Polhamus (1966, NASA TN D-3767; 1971, *J. Aircraft* 8(4):193–199) to a samara blade section:
+  2. **LEV vortex lift — IMPLEMENTED, OFF by default** (`enableLEV`), with two modelling switches:
+     `levApplicationPoint = 'colocated'` (default) | `'forward'` for *where* it acts, and
+     `lev.rossbyDefinition = 'kinematic'` (default) | `'geometric'` for *when* it acts. Code:
+     `physics3d/computeLEVForce.m`
+     (per-strip force, gate, application point) and `physics3d/levPlanformConstants.m` (`K_p`, `K_i`,
+     `K_v`), both documenting every equation's source at its point of use. The builder stores this
+     seed's constants in `seedParams.lev`; tune them with `cfg.lev` (`AR`, `Kp`, `Ki`, `Kv`,
+     `RoCrit`, `p`, `lambdaV`, `rossbyDefinition`) — `buildSeedParams` keeps `Kv = Kp − Kp²Ki`
+     consistent and rejects an unknown definition at build time. Plots from the
+     implemented code: `testing/shape3d/exploreLEVTerm.m`. The exact form, from Rezgui, Arroyo &
+     Theunissen (2020, *Aeronautical Journal* 124(1278):1236–1261,
+     [doi:10.1017/aer.2020.25](https://doi.org/10.1017/aer.2020.25)), who adapt Polhamus (1966, NASA
+     TN D-3767; 1971, *J. Aircraft* 8(4):193–199) to a samara blade section:
 
          C_L,v = K_v · sin²α · cos α / cos Λ              (their eq. 3; sweep Λ = 0)
          K_v   = K_p − K_p²·K_i ,   K_i = ∂C_Di / ∂C_L²    (eqs. 4–5)
@@ -441,18 +455,73 @@ measure what survives before adding anything new. The phases run in order; phase
 
      Still physically real and well-motivated for **lift magnitude** — the total peaks near 1.8–2.0,
      matching Lentink et al. (2009) — so it may yet matter for the absolute descent rate. It is no
-     longer the leading candidate for the collapse. The Rossby gate (`Ro_crit = 3`, Lentink &
-     Dickinson 2009) and the centre-of-pressure placement are *additions* made here, not in Rezgui.
+     longer the leading candidate for the collapse.
+
+     **What is ours rather than Rezgui's.** They apply the vortex lift everywhere, ungated, and give
+     no centre of pressure for it. The Rossby gate `G = 1/(1 + (Ro/Ro_crit)^p)` and the application
+     point are additions made here. On the gate, checked against Lentink & Dickinson (2009, *J. Exp.
+     Biol.* 212:2705–2719) directly: they observe a stable LEV on a revolving wing at `Ro = Rg/c = 2.9`
+     (radius of gyration), an unstable one when translating (`Ro = ∞`), and force coefficients that
+     change with `Ro` over 2.9 → 4.4; real wings cluster near **tip-radius** `Ro ≈ 3` (their Eq. 6).
+     **They publish no critical Rossby number**, so `Ro_crit = 3` is an anchor at that scale and
+     `p = 4` has no literature value — both tunable.
+
+     **Which Rossby number — the third switch, `lev.rossbyDefinition`.** The first implementation read
+     `Ro = r/c` geometrically, and that broke reference modes: `r > 0` whether or not the seed is
+     revolving, so a parachuting seed that never spins still received `G ≈ 1`. Both of Lentink &
+     Dickinson's definitions are *radius over chord*, which is the **pure-revolution special case** of
+     Rossby's ratio `U/(Ω·L)` (Rossby 1936) — what they are scaling is the Coriolis and centripetal
+     accelerations against the fluid's convective acceleration. Reading that generally gives the
+     default:
+
+         'kinematic' (default)   Ro = |v_ip| / (Ω·c),   Ω = |ω × ŝ|   (per strip, per step)
+         'geometric'             Ro = r/c               (the old gate, kept for reproducibility)
+
+     `Ω` is the rate at which the strip **revolves about the CoM**; rotation about its own span axis is
+     pitching, not revolution, so it is excluded — which is why a tumbling (fluttering) seed reads as
+     non-revolving. Under pure revolution `|v_ip| = Ω·r`, so the kinematic form reduces **exactly** to
+     `r/c` (verified to ~1e-16, in the term and in the RHS: `testNewPhysicsTerms` L3b/L3c). It is coded
+     division-free, `G = (Ro_crit·c·Ω)^p / ((Ro_crit·c·Ω)^p + |v_ip|^p)`, so `Ω → 0` stays finite and
+     smooth for the integrator. Descent speed enters through `|v_ip|`, which is correct in direction:
+     descent along the spin axis raises the convective acceleration without raising the Coriolis one.
+
+     **Measured with it switched on** (reference inputs, `'colocated'`, shape3d defaults otherwise):
+
+     | | LEV off | `'geometric'` | `'kinematic'` |
+     |---|---|---|---|
+     | `parachute` mode | ✓ | → gliding | ✓ |
+     | `autorotation` mode | ✓ | → spiral | ✓ |
+     | `flutter+spiral` (collapse) mode | fluttering | → autorotation | fluttering |
+     | tight-spiral descent | 1.44 | 1.23 | 1.30 |
+     | twist 10° vertical spin | 60.1 | 98.0 | 60.0 |
+     | **reference modes preserved (of 8)** | — | **5** | **8** |
+
+     The kinematic gate fixes every case the geometric one broke, and **changes almost nothing else**:
+     only the tight spiral moves meaningfully (descent −0.15 m/s, spin +2.9 rad/s). The reason is
+     visible in the gate itself — it is half open at `Ω* = |v|/(Ro_crit·c)`, which for this seed's
+     15 mm chord means ~89 rad/s at a 4 m/s descent, while the model's autorotation reaches only
+     **17.8 rad/s** (median `|ω × ŝ|`, measured). So the seed spins too slowly and falls too fast to
+     earn its vortex. That is the same circularity found with induced inflow: the lift deficit makes
+     it descend fast, and descending fast denies it the lift. The gate is not the thing to tune around
+     it — `exploreLEVTerm.m` figure 5 plots exactly this trade.
 
      *(An earlier version of this item warned that the model cannot tell a leading edge from a
      trailing one. That was wrong: the leading edge is `sign(cos α) = sign(v_c)`, which
      `computeAeroCoeffs` already branches on, and `sign(l_cp)` tracks it at every angle.)*
-  3. **`-Ȧv` — IMPLEMENTED, ON by default for shape3d** (`enableAddedMassRate`; OFF for planar so
-     it stays byte-frozen). Lives in the shared core `physics/rigidBody6DOF.m`, which folds
-     `Ȧ_i·v = ω×(A_i v) − A_i(ω×v)` into the force before the translational solve. Verified:
-     implementation vs formula `4.8e-15`, formula vs finite difference of `R·A_b·Rᵀ` along a real
-     trajectory `5.6e-10`, enters the solve with the right sign `1.6e-15`. Negligible on offset-CoM
-     cases (autorotation 4.42 → 4.41 m/s); large on the centred-CoM twist case (46.5 → 11.0 m/s alone).
+  3. **`-Ȧv` — IMPLEMENTED, OFF by default in both models** (`enableAddedMassRate`; set it true to
+     include it). Switched off by decision while its literature support is reviewed. Lives in the
+     shared core `physics/rigidBody6DOF.m`, which folds `Ȧ_i·v = ω×(A_i v) − A_i(ω×v)` into the force
+     before the translational solve. Verified: implementation vs formula `4.8e-15`, formula vs finite
+     difference of `R·A_b·Rᵀ` along a real trajectory `5.6e-10`, enters the solve with the right sign
+     `1.6e-15`.
+     **For that review:** this is Kirchhoff's equation for a body moving through fluid with an
+     anisotropic added mass (Lamb, *Hydrodynamics*, ch. VI), written in the inertial frame — and the
+     APW reference model already carries the same physics in its body-frame form, the
+     `(m+m2)·ω·vyp` and `−(m+m1)·ω·vxp` terms of `minimal_imp` (lines 208–209). `testNewPhysicsTerms`
+     check **A5** shows it directly: with the term ON, this model's acceleration equals Kirchhoff's
+     body-frame form to `3.1e-15`; with it OFF, it is off by up to **140%** on the same states. So with
+     it off, the 3D model omits a term the 2D reference includes. Effect when on: negligible on
+     offset-CoM cases (autorotation 4.42 → 4.41 m/s); large on the centred-CoM twist case.
   4. **Nut form drag.** Real but least relevant to this failure — for a centred nut it acts near
      the CoM and contributes little moment.
   5. **Edge crossflow drag — IMPLEMENTED, ON by default for shape3d** (`enableEdgeDrag`),
@@ -470,7 +539,9 @@ measure what survives before adding anything new. The phases run in order; phase
      outside the RHS). `testShape3DFlatEquivalence` now switches both terms off for its core
      comparison, and still matches planar to `0.000e+00`.
 
-  **Benchmark after items 3 and 5** — snapshot `2026-09-21_103642_6940ceb`. Planar is still
+  **Benchmark after items 3 and 5** — snapshot `2026-09-21_103642_6940ceb`. *(Run with the
+  added-mass rate ON, which is no longer the default — regenerate before comparing against it.)*
+  Planar is still
   byte-identical to the `a51df23` snapshot (grid and test suite). Against the previous 3D grid
   (span force, no rate term), 43 of 400 cells changed: autorotation +10, tightSpiral −14,
   diving +6, and mean descent on unchanged cells fell 4.82 → 4.30 m/s. **Cells descending faster
@@ -481,6 +552,174 @@ measure what survives before adding anything new. The phases run in order; phase
   `flutter+spiral` still collapses, now to `diving` at 8.76 m/s rather than 13.65.
   LEV and the aspect-ratio correction push in opposite directions; both are real and they do not
   cancel.
+
+### Phase 5 — match the Hou et al. (2025) phase map (next arc)
+
+Target: **Fig. 2a of reference 4** — an *experimental* four-mode map (autorotation AR, spiral
+tumbling ST, chaotic CH, falling FA) over CoM position for a 60 × 20 mm plate (AR 3.0, 92.8 mg)
+carrying a heavy 102.9 mg weight on the **long** axis and a light 51.4 mg weight on the **short**
+axis. Goal: reproduce the **topology** of that map and the descent-speed ordering with as little
+added physics as possible — not to fit it.
+
+**Their axes, decoded** (the caps are structural, which is what confirms the reading):
+
+| theirs | is | cap | our equivalent |
+|---|---|---|---|
+| `x_c = m_h·x′/m_tot`, `a = L/2` | CoM offset along the **long** axis (our **span**) | `x_c/a ≤ m_h/m_tot = 0.416` | `x_c/a = 2µ·spanFrac` |
+| `y_c = m_l·y′/m_tot`, `b = W/2` | CoM offset along the **short** axis (our **chord**) | `y_c/b ≤ m_l/m_tot = 0.208` | `y_c/b = 2µ·chordFrac` |
+
+with `µ = m_nut/M_total` (0.435 for the current seed). **Our existing grid runs both fractions to
+1.5, i.e. `x_c/a` and `y_c/b` to 1.30 — their entire map is the bottom-left ~5% of ours.** Only 2
+of our 7 reference inputs land inside it (`fluttering` and `flutter+spiral`, both at `x_c/a ≈ 0`,
+`y_c/b = 0`, deep in continuous-ST), and in both we produce a span-first collapse or plain
+tumbling rather than spiral tumbling. The `autorotation` reference sits at `x_c/a = 1.04` — its
+nut is 1.4 half-spans *beyond the wingtip*, a configuration neither their rig nor a samara has.
+
+Useful reframing: **their FA mode is our collapse** ("plate tilting toward the concentrated mass,
+small windward area, rapid descent"). The span-first fall is a real mode in the wrong place, so
+the job is to make ST win in the lower-left, not to abolish FA.
+
+One grid-free check available immediately: they establish `V_d = sqrt(σg/ρ)·f(Re, σ*, Geo*)` with
+an O(1) prefactor. Our σ = 0.23 kg/m² gives `sqrt(σg/ρ) = 1.36 m/s`, so `V_d/sqrt(σg/ρ)` should be
+≈ 1 and is **3.0** (autorotation, 4.13 m/s) to **6.5** (collapse, 8.76 m/s).
+
+**Tier 0 — no new physics. Nothing below is measurable until this is done.**
+
+- [ ] **A new, separate paper-parameter mode grid** (`testing/shape3d/runPaperModeGrid.m`), NOT a
+  change to `runSeedModeGrid` — the existing grid stays exactly as it is so old runs remain
+  comparable. Their plate and mass ratios, axes `x_c/a ∈ [0, 0.42]` × `y_c/b ∈ [0, 0.21]`, their
+  release condition (cone `θ = 0`, self-rotation `ψ = π/2`, from rest; ours releases at a 30° tilt,
+  which selects a different basin), routed through `seedRHS` on flat `shape3d` (they explicitly
+  excluded camber and twist).
+- [ ] **A paper-mode classifier** (`testing/helpers/classifyPaperMode.m`) emitting `AR / CST / SST /
+  CH / FA`, reported **side by side** with `classifyFlightMode` so the two vocabularies can be
+  compared rather than one replacing the other. Needs three new metrics: long-axis-from-horizontal
+  (their `θ`; our `coneAngleDeg` is the plate *normal* from vertical, a different quantity),
+  orbital revolution rate about the helix axis (their `φ′`, not the body spin), and
+  tumbles-per-revolution. Existing `tumbleFrac` already separates AR (≈ 0) from ST (≈ 1).
+- [ ] **Anchor cases** (`testing/shape3d/runPaperAnchorCases.m`) — the five configurations they
+  publish kinematics for, each with a measured target: AR (0.39, 0.17) `θ = −11.4 ± 4.2°`;
+  continuous ST (0.06, 0.04) `θ = −38.2 ± 2.3°`, ~7 tumbles/revolution, helix radius 1.25 L;
+  segmented ST (0.10, 0.10) `θ = −38.3 ± 13.0°`, radius 1.89 L, tumble-direction reversals;
+  CH (0.18, 0.08); FA (0.35, 0.08). Cheap enough to screen switch combinations against.
+
+**Tier 1 — flip or relocate an existing term. In order of justification-to-effort.**
+
+- [ ] **Turn `enableAddedMassRate` ON.** Not new physics: check **A5** already proves that with it
+  on, our translational equation *is* Kirchhoff's body-frame form — the same `(m₂₂u₂)ω` /
+  `−(m₁₁u₁)ω` coupling APW 2005 carries and that drives their fluttering↔tumbling transition. With
+  it off we run APW's coefficients inside a non-APW equation. ST *is* tumbling, so this is where it
+  should bite hardest. One boolean; re-baseline after.
+- [ ] **Turn `enableAddedMassMoment` ON** — the added-mass (Munk) moment, `−v × (A·v)`.
+  *(This item replaces an earlier one, "apply edge drag at the windward tip", which was **wrong**:
+  for a flat seed the edge force is parallel to its own moment arm, so relocating it along the span
+  cannot change `r × F` at all. Chasing that found the real gap.)*
+  Kirchhoff's equations are a **pair**, and we had implemented only half of them:
+
+      dp/dt + ω × p = F        p = (M·I + A)v      <- enableAddedMassRate
+      dL/dt + ω × L + v × p = τ                    <- this term; v × (M·v) = 0
+
+  APW 2005 eq. **(6.3)** carries it explicitly:
+  `(I + I_a)θ̈ = (m₁₁ − m₂₂)v_x′v_y′ + l_τ ρ_f Γ|v| − τ^ν`. Our strip forces supply their second
+  term (circulatory torque at `l_cp`) and their third (`stripSpinDamping`); **the first had no
+  counterpart in this model at all.** It is the moment that turns a body broadside-on to its own
+  motion, needs no coefficient, and is quadratic in velocity. Implemented in `physics/rigidBody6DOF.m`,
+  folded into the torque exactly as the rate term is folded into the force, default OFF.
+  Checks M1–M6 in `testNewPhysicsTerms`: the 2D limit equals APW (6.3) to `2.2e-16`
+  (`m₁₁ ↔ A_chord = 0`, `m₂₂ ↔ A_normal = 1.08e-05 kg`), and M5 verifies the physical claim that it
+  destabilises an edge-on fall.
+- [ ] **Turn `enableLEV` ON** (kinematic gate). Reference 4 independently validates the gate's
+  logic: the LEV "stays stably attached" in AR and in ST "sheds into the wake and no longer
+  contributes to lift" — attached when revolving, shed when tumbling, which is exactly what
+  excluding `ω·ŝ` encodes. One boolean.
+
+**Tier 1 screen, measured** (8 combinations of `R` = added-mass rate, `M` = added-mass moment,
+`L` = LEV, on the five anchor cases; `testing/shape3d/runPaperAnchorCases.m` is the harness):
+
+| combo | AR θ | CST θ | RMS `V_d/scale − 1` | FA fastest |
+|---|---|---|---|---|
+| (baseline) | −18.3 ± 28.0 | −56.1 ± 0.2 | 0.89 | no |
+| `R` | −19.7 ± 26.1 | −58.7 ± 0.0 | 2.10 | no |
+| `L` | −27.7 ± 6.1 | −73.8 ± 18.0 | 4.85 | no |
+| `M` | −32.6 ± 0.9 | −0.1 ± 0.1 | 0.24 | **yes** |
+| **`RM`** | **−29.6 ± 1.0** | −0.1 ± 0.1 | **0.20** | **yes** |
+| `RML` | −27.9 ± 3.7 | −0.1 ± 0.1 | 0.24 | **yes** |
+| *paper* | *−11.4 ± 4.2* | *−38.2 ± 2.3* | *~0* | *yes* |
+
+**The Munk moment is decisive.** It pulls every anchor's descent speed into `1.1–1.3 ×
+sqrt(σg/ρ)` (the paper's prefactor is O(1); the baseline spanned 1.2–2.4), makes FA the fastest as
+published, and collapses the AR case's cone wander from **±28.0° to ±0.9°** — our classifier only
+calls that case `autorotation` once `M` is on. `R` alone is actively harmful (0.89 → 2.10) and `L`
+alone is worse (CST descends at 14.9 m/s), but `R` helps once `M` is there, which is what taking
+Kirchhoff as a pair predicts. `L` is near-neutral with `M` on.
+
+**What is left is the CONE ANGLE, and it is inverted.** The paper has AR shallow (−11°) and ST
+steep (−38°); we get AR steep (−30°) and ST **flat (0°)**. The Munk moment turns the near-centred
+plates fully broadside, so they flutter in the plain 2D APW sense instead of holding a coned,
+revolving tumble — and that also explains why AR is no longer the slowest case (a −30° cone
+presents less area than a −11° one). First suspect is **not** missing physics but the Tier 2
+lumped-nut inertia: a coned tumbling spiral is held by the gyroscopic balance
+`τ = Ω_rev × I_long·ψ′`, and our single nut puts `I_long` about **5× too low**. Test that before
+adding anything.
+
+**Measured, snapshot `2026-09-23_184153_331ff04`** (13×8 over the window, shape3d defaults:
+rate + moment ON, LEV off). **Agreement with the digitised Fig. 2a: 0% (0/104).**
+
+```
+OURS                            THEIRS (digitised)
+y=0.200 | LLLLscccccccc         y=0.200 | XAAAAAAAAAAAA
+y=0.146 | LLLLLsccccccc         y=0.146 | XXXXXAAAAAAAA
+y=0.091 | LLLLLLscccccc         y=0.091 | TTTXXXXXXFFFF
+y=0.037 | LLLLLLLcccccc         y=0.037 | TTTTTTTXXFFFF
+        L=flutter  c=CST  s=SST         T=ST  X=CH  A=AR  F=FA
+```
+
+| they say | cells | we say |
+|---|---|---|
+| ST | 25 | flutter ×25 |
+| CH | 27 | flutter ×17, ST ×10 |
+| AR | 36 | **ST ×32**, flutter ×4 |
+| FA | 16 | **ST ×16** |
+
+Descent speed is right everywhere — **1.04–1.36 × sqrt(σg/ρ)**, against a published prefactor of
+O(1). Every failure is an *attitude* failure, and they share one cause:
+
+> **THE MODEL CANNOT HOLD A FIXED ATTITUDE ABOUT ITS LONG AXIS.** Over the whole window it does
+> exactly two things: flutter (flat, rocking, hundreds of direction reversals, never a full turn) or
+> tumble-while-revolving (a steady −20 to −30° cone, whole turns one way). Both of the modes we are
+> missing are defined by the *absence* of that flipping — AR is revolution without it, FA is falling
+> without it — so one deficit removes both. Their AR case measures `θ = −11.4 ± 4.2°` with no
+> tumbling; ours comes out `−29.6 ± 1.0°` at **0.97 tumbles per revolution**.
+
+Ruled out as explanations, each by measurement rather than argument:
+* *A mis-fitted revolution rate.* Fitting `φ′` from the CoM ground track and from the span-axis
+  azimuth agree to four significant figures on every case, so `ψ′` is right and the flipping is real.
+* *The `I_long` inertia gap.* The earlier "5× too low" was computed on our own 15 mm seed, not this
+  plate; here the lumped nut is about **1.6×** low at the top of the `y_c/b` range and less below.
+  Worth fixing (Tier 2) but too small to be the cause.
+
+The sharp remaining question is **why the chordwise CoM offset produces so little pitch stiffness**:
+their AR needs `y_c/b ≳ 0.12` and their FA appears below it, whereas our map barely responds to
+`y_c/b` at all. A static pitch-moment curve against chordwise CoM position would answer it directly,
+and is cheap.
+
+> *Superseded:* an earlier reading of this grid reported 28% agreement with ST absent. It was
+> produced by a classifier with a real defect (it read `ω_z` directly, so a plate merely revolving at
+> a tilt counted as tumbling). `testPaperMetrics` now pins the metrics against synthetic motion; the
+> numbers above are from the corrected one.
+
+**Tier 2 — recorded, not scheduled.** Two-point-mass support (`bsp.extraMasses`, handled only in
+`setupSeedShape3D` so the frozen planar builder is untouched): their light weight sits on the short
+axis at up to 10 mm and contributes ~4.3e-9 kg·m² about the long axis, while our single equivalent
+nut contributes ~8.2e-10 — **5× less inertia about the very axis ST tumbles around**. Also the
+finite-AR correction through the existing per-strip `liftMult`, and the plate thickness (ours is
+2 mm on a 15 mm chord, `t/c = 0.13`; kraft paper is `t/c ≈ 0.01`, and `t` sets the edge-drag area).
+
+**Known ceiling.** Their ST lift peak comes from tip vortices merging into Ω-shaped vortex tubes,
+and their AR mode from rib-like tip vortices — wake structures with memory. Quasi-steady strip
+theory cannot carry those, so match the topology and the `V_d` ordering, and expect the boundaries
+to sit in the wrong place by some margin. Keep `Ro_crit`, `p` and `λ_v` **frozen** at their derived
+values throughout: tuning them to fit the map would make the agreement meaningless.
 
 ### Bugs — not working to spec, or broken in a meaningful way
 

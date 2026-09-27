@@ -45,14 +45,17 @@ baseBsp.numStrips=cfg.numStrips;
 % CORE: each model stripped down to what they SHARE -- APW sectional coefficients
 % + strip theory + rigid-body dynamics + added mass.
 %   planar : drop its invented whole-seed terms (span force, Tx, Ty).
-%   shape3d: drop its phase-4 additions (edge drag, added-mass rate). Both are
-%            first-principles or physically grounded and ON by default, but they
-%            are NOT in the planar model, so they are not part of the core.
+%   shape3d: drop its phase-4/5 additions (edge drag, BOTH added-mass couplings,
+%            LEV). None of them is in the frozen planar model, so none is part of
+%            the shared core -- the rate term and the Munk moment are now ON by
+%            default for shape3d, so they must be switched off explicitly here or
+%            this comparison stops being a comparison of the core.
 cfgPcore = cfg;
 cfgPcore.enableSpanForce = false;  cfgPcore.enableTxDamping = false;
 cfgPcore.enableNormalSpinDamping = false;
 cfg3core = cfg;  cfg3core.shapeModel = 'shape3d';
-cfg3core.enableEdgeDrag = false;   cfg3core.enableAddedMassRate = false;
+cfg3core.enableEdgeDrag        = false;   cfg3core.enableAddedMassRate = false;
+cfg3core.enableAddedMassMoment = false;   cfg3core.enableLEV           = false;
 
 % FULL: each model at its own defaults (planar keeps the invented terms).
 cfgPfull = cfg;

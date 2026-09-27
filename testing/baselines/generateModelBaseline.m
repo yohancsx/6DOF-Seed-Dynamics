@@ -7,7 +7,12 @@
 %   - a COARSE flight-mode phase map (mode_grid/),
 %   - the 3 moving-CoM scenarios (com_movement/),
 %   - the sweep test suite (test_suite/),
-%   - the shape-3D twist + curvature sweeps (shape3d/).
+%   - the shape-3D twist + curvature sweeps (shape3d/),
+%   - the Hou et al. (2025) comparison (paper/): their plate, their parameter
+%     window and their release condition, with the five published anchor cases
+%     and the phase map, labelled by both classifiers and scored against the
+%     digitised Fig. 2a. Regenerated with every snapshot, so the distance from
+%     the published map is tracked like any other regression.
 % The git hash pins the exact code (incl. aero constants), so a snapshot is
 % reproducible from source. Outputs are git-ignored (see model_test_results/).
 %
@@ -161,7 +166,177 @@ catch ME
     fprintf(2,'  SHAPE3D SUITES FAILED: %s\n', ME.message);
 end
 
+%% 6. Paper comparison (Hou et al. 2025)  -> paper/
+% Regenerated with EVERY snapshot, so the distance from the published phase map is
+% tracked like any other regression rather than being re-measured by hand whenever
+% someone remembers to. Runs their plate, their parameter window and their release
+% (paperSeedConfig), and records both the five published anchor cases and the
+% full mode grid, each labelled by BOTH classifiers.
+try
+    pc = struct();
+    pc.nX = 13;   pc.nY = 8;                   % grid resolution over their window
+    pc.tspan = [0 12];  pc.relTol = 1e-6;  pc.absTol = 1e-8;
+    pc.metricOpts.windowStartFrac = 0.5;  pc.metricOpts.convergeTol = 0.20;
+    runPaperComparison(pc, fullfile(snapDir, 'paper'));
+    fprintf('  paper comparison done\n');
+catch ME
+    fprintf(2,'  PAPER COMPARISON FAILED: %s\n', ME.message);
+end
+
 fprintf('\nBASELINE SNAPSHOT COMPLETE: %s\n', snapDir);
+
+
+% =========================================================================
+% LOCAL: the Hou et al. (2025) comparison -- anchors + phase map (parfor)
+% =========================================================================
+function runPaperComparison(p, outDir)
+% Their plate, their window, their release, at whatever physics the shape3d
+% builder currently defaults to. Writes:
+%   paper_anchors.mat / .txt   the five published cases, measured vs published
+%   paper_mode_grid.mat        the grid, both classifiers, plus the digitised
+%                              reference and the per-region agreement
+%   paper_summary.txt          the numbers worth reading at a glance
+    if ~exist(outDir,'dir'); mkdir(outDir); end
+    [cfg, bsp, toNutPos, info] = paperSeedConfig();
+    cfg.tspan = p.tspan;  cfg.odeRelTol = p.relTol;  cfg.odeAbsTol = p.absTol;
+    cfg.metricOpts = p.metricOpts;
+    mopts = cfg.metricOpts;
+    mopts.refLength = info.L;  mopts.sigma = info.sigma;
+    mopts.g = cfg.g;  mopts.rhoFluid = cfg.rhoFluid;
+    th = defaultModeThresholds();
+    odeOpts = odeset('RelTol',cfg.odeRelTol,'AbsTol',cfg.odeAbsTol);
+    x0q = cfg.releaseQuat;  x0w = cfg.releaseOmega;
+
+    % Record the switches actually in force, read off a built seed.
+    bspS = bsp;  bspS.nutPos_t = [0;0;0];
+    spS  = buildSeedParams(bspS, cfg);
+    switches = struct('enableAddedMassRate',   spS.enableAddedMassRate, ...
+                      'enableAddedMassMoment', spS.enableAddedMassMoment, ...
+                      'enableLEV',             spS.enableLEV, ...
+                      'enableEdgeDrag',        spS.enableEdgeDrag);
+
+    % --- the five published anchor cases ----------------------------------
+    %      name   x_c/a  y_c/b  theta  thetaSd  tumb/rev  R/L
+    anch = { 'AR ', 0.39, 0.17, -11.4,  4.2, NaN,  NaN ; ...
+             'CST', 0.06, 0.04, -38.2,  2.3, 7.0,  1.25; ...
+             'SST', 0.10, 0.10, -38.3, 13.0, NaN,  1.89; ...
+             'CH ', 0.18, 0.08,   NaN,  NaN, NaN,  NaN ; ...
+             'FA ', 0.35, 0.08,   NaN,  NaN, NaN,  NaN };
+    nA = size(anch,1);
+    aLab = cell(nA,1);  aOur = cell(nA,1);  aMet = cell(nA,1);
+    for i = 1:nA
+        [aLab{i}, aOur{i}, aMet{i}] = runOne(toNutPos(anch{i,2}, anch{i,3}), ...
+                                             bsp, cfg, odeOpts, x0q, x0w, mopts, th);
+    end
+    save(fullfile(outDir,'paper_anchors.mat'),'anch','aLab','aOur','aMet','cfg','info','switches');
+
+    fid = fopen(fullfile(outDir,'paper_anchors.txt'),'w');
+    fprintf(fid,'%-5s %-5s %-5s | %-6s %-14s %-14s | %-9s %-7s | %-7s %s\n', ...
+            'case','x/a','y/b','label','theta model','theta paper','tumb/rev','paper','V_d','ours');
+    for i = 1:nA
+        m = aMet{i};
+        if isempty(m)
+            fprintf(fid,'%-5s %-5.2f %-5.2f | FAILED\n', anch{i,1}, anch{i,2}, anch{i,3});
+            continue
+        end
+        if isnan(anch{i,4}); tp = '(not reported)'; else; tp = sprintf('%+.1f +/- %.1f',anch{i,4},anch{i,5}); end
+        fprintf(fid,'%-5s %-5.2f %-5.2f | %-6s %-14s %-14s | %-9.2f %-7s | %-7.2f %s\n', ...
+                anch{i,1}, anch{i,2}, anch{i,3}, aLab{i}, ...
+                sprintf('%+.1f +/- %.1f', m.spanAxisTiltDeg, m.spanAxisTiltStd), tp, ...
+                m.tumblesPerRev, num2str(anch{i,6}), m.descentSpeed, aOur{i});
+    end
+    fclose(fid);
+
+    % --- the phase map over their window ----------------------------------
+    xaGrid = linspace(0.01, 0.41, p.nX);
+    ybGrid = linspace(0.01, 0.20, p.nY);
+    total  = p.nX * p.nY;   nX = p.nX;
+    pLab = cell(total,1);  oLab = cell(total,1);
+    Vd = nan(total,1);  th1 = nan(total,1);  th1s = nan(total,1);
+    try if isempty(gcp('nocreate')); parpool('local'); end; catch; end
+    parfor k = 1:total
+        iy = floor((k-1)/nX)+1;   ix = mod(k-1,nX)+1;
+        [lab, our, m] = runOne(toNutPos(xaGrid(ix), ybGrid(iy)), ...
+                               bsp, cfg, odeOpts, x0q, x0w, mopts, th);
+        pLab{k} = lab;  oLab{k} = our;
+        if ~isempty(m)
+            Vd(k) = m.descentSpeed;  th1(k) = m.spanAxisTiltDeg;  th1s(k) = m.spanAxisTiltStd;
+        end
+    end
+    rs = @(v) reshape(v, nX, p.nY).';
+    paperMode = string(reshape(pLab, nX, p.nY).');
+    ourMode   = string(reshape(oLab, nX, p.nY).');
+    Vd = rs(Vd);  theta = rs(th1);  thetaSd = rs(th1s);
+
+    refMode = strings(p.nY, nX);
+    for iy = 1:p.nY
+        for ix = 1:nX
+            refMode(iy,ix) = string(paperModeReference(xaGrid(ix), ybGrid(iy)));
+        end
+    end
+    fam = paperMode;  fam(fam=="CST" | fam=="SST") = "ST";
+    valid = fam ~= "failed";
+    agreeFrac = sum(fam(valid) == refMode(valid)) / max(nnz(valid),1);
+    save(fullfile(outDir,'paper_mode_grid.mat'),'xaGrid','ybGrid','paperMode', ...
+         'ourMode','refMode','Vd','theta','thetaSd','agreeFrac','cfg','info','switches');
+
+    % --- summary ----------------------------------------------------------
+    codeOf = containers.Map({'AR','CST','SST','CH','FA','FL','failed'}, ...
+                            {'A','c','s','X','F','L','?'});
+    refOf  = containers.Map({'AR','ST','CH','FA'}, {'A','T','X','F'});
+    fid = fopen(fullfile(outDir,'paper_summary.txt'),'w');
+    fprintf(fid,'Hou et al. (2025) comparison\n');
+    fprintf(fid,'physics: rate %d, moment %d, LEV %d, edge drag %d\n', ...
+            switches.enableAddedMassRate, switches.enableAddedMassMoment, ...
+            switches.enableLEV, switches.enableEdgeDrag);
+    fprintf(fid,'velocity scale sqrt(sigma g/rho) = %.3f m/s\n\n', info.Vscale);
+    fprintf(fid,'agreement with digitised Fig. 2a: %.0f%% (%d/%d cells)\n\n', ...
+            100*agreeFrac, round(agreeFrac*nnz(valid)), nnz(valid));
+    fprintf(fid,'OURS                              THEIRS (digitised)\n');
+    for iy = p.nY:-1:1
+        ro = blanks(nX);  rr = blanks(nX);
+        for ix = 1:nX
+            ro(ix) = codeOf(char(paperMode(iy,ix)));
+            rr(ix) = refOf(char(refMode(iy,ix)));
+        end
+        fprintf(fid,'y=%.3f | %-16s   y=%.3f | %s\n', ybGrid(iy), ro, ybGrid(iy), rr);
+    end
+    fprintf(fid,['\nA=AR c=CST s=SST X=CH F=FA L=FL(flutter -- not one of their\n' ...
+                 'modes, so it always counts as a mismatch) T=ST(either) ?=failed\n']);
+    fprintf(fid,'\nper published region:\n');
+    for cat = ["ST","CH","AR","FA"]
+        sel = valid & (refMode == cat);
+        if nnz(sel)==0; continue; end
+        got = fam(sel);  u = unique(got);
+        parts = cell(1,numel(u));
+        for j = 1:numel(u); parts{j} = sprintf('%s=%d', u(j), sum(got==u(j))); end
+        fprintf(fid,'  they say %-3s (%3d) -> we say %s\n', cat, nnz(sel), strjoin(parts,', '));
+    end
+    fprintf(fid,'\ndescent speed %.2f to %.2f m/s (%.2f-%.2f x scale)\n', ...
+            min(Vd(:)), max(Vd(:)), min(Vd(:))/info.Vscale, max(Vd(:))/info.Vscale);
+    fclose(fid);
+    fprintf('    paper grid agreement %.0f%%, V_d %.2f-%.2f x scale\n', ...
+            100*agreeFrac, min(Vd(:))/info.Vscale, max(Vd(:))/info.Vscale);
+end
+
+function [lab, our, m] = runOne(nutPos, bsp, cfg, odeOpts, q0, w0, mopts, th)
+% One drop at a nut position: integrate, then label with BOTH classifiers.
+    lab = 'failed';  our = 'failed';  m = [];
+    b = bsp;  b.tSamples = 0;  b.nutPos_t = nutPos;  b.nutMass_t = cfg.nutMass;
+    try
+        sp  = buildSeedParams(b, cfg);
+        rhs = seedRHS(sp);
+        x0  = [zeros(3,1); q0(:); zeros(3,1); w0(:)];
+        [t, x] = ode45(@(tt,xx) rhs(tt,xx,sp), cfg.tspan, x0, odeOpts);
+        if ~any(~isfinite(x(:)))
+            m   = computePaperMetrics(t, x, mopts);
+            lab = classifyPaperMode(m);
+            our = classifyFlightMode(m, th);   % pm is a superset of the base metrics
+        end
+    catch
+        % leave as 'failed'
+    end
+end
 
 
 % =========================================================================

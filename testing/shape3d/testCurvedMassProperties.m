@@ -13,9 +13,9 @@
 %      shifts in +y (matching an independent hand calculation), I_G stays
 %      symmetric positive-definite, and total mass is conserved.
 %   D. TOGGLES -- each model stamps its own switch set (planar: span force on,
-%      added-mass rate off; shape3d: edge drag + added-mass rate on, no span-force
-%      switch), a cfg override wins, and the general per-strip added-mass form
-%      reduces exactly to the flat form on a flat seed.
+%      added-mass rate off; shape3d: edge drag on, added-mass rate and LEV off,
+%      no span-force switch), a cfg override wins, and the general per-strip
+%      added-mass form reduces exactly to the flat form on a flat seed.
 %
 % A "flat" curvature profile (@(s) 0*s) is used for A and B: curvature is
 % PRESENT (so the curved-mass path runs) but zero (so the geometry is flat).
@@ -79,18 +79,21 @@ fprintf('   (curvature changes the inertia by %.1f%% vs flat)\n', ...
 
 %% D. Physics toggles: per-model switch sets + added-mass reduction
 % Each model must stamp its OWN switch set. Planar keeps the span force and has
-% the added-mass rate OFF (frozen reference). shape3d -- flat, twisted or curved
-% alike -- has edge drag and the added-mass rate ON, and carries NO span-force
-% switch at all (retired in phase 4; with it went the old curved-seed special
-% case). A cfg override must win. The general added-mass form must still reduce
-% EXACTLY to the flat form on a flat seed -- including with an out-of-plane nut,
-% since the (d x n) term drops any offset parallel to the strip normal.
+% BOTH added-mass couplings OFF (frozen reference, byte-identical to older runs).
+% shape3d -- flat, twisted or curved alike -- has edge drag ON, both halves of
+% Kirchhoff's pair ON (the rate term and the Munk moment), LEV OFF, and carries NO
+% span-force switch at all (retired in phase 4; with it went the old curved-seed
+% special case). A cfg override must win. The general added-mass form must still
+% reduce EXACTLY to the flat form on a flat seed -- including with an out-of-plane
+% nut, since the (d x n) term drops any offset parallel to the strip normal.
 bT = base;  bT.twist = @(z) (deg2rad(20)/hs) * z;   spT = buildSeedParams(bT, cfg3);
 cfgOv = cfg3;  cfgOv.enableEdgeDrag = false;
 spCov = buildSeedParams(bC, cfgOv);
 is3dSet = @(s) isfield(s,'enableEdgeDrag') && s.enableEdgeDrag ...
-               && s.enableAddedMassRate && ~isfield(s,'enableSpanForce');
-okD1 = spP.enableSpanForce && ~spP.enableAddedMassRate && ~isfield(spP,'enableEdgeDrag') ...
+               && s.enableAddedMassRate && s.enableAddedMassMoment && ~s.enableLEV ...
+               && strcmp(s.levApplicationPoint,'colocated') && ~isfield(s,'enableSpanForce');
+okD1 = spP.enableSpanForce && ~spP.enableAddedMassRate && ~spP.enableAddedMassMoment ...
+       && ~isfield(spP,'enableEdgeDrag') ...
        && is3dSet(spT) && is3dSet(spC) && ~spCov.enableEdgeDrag;
 
 spF = buildSeedParams(base, cfg3);                 % flat shape3d (identity frames)

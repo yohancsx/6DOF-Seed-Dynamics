@@ -82,5 +82,7 @@ end
 % -------------------------------------------------------------------------
 mp.enableAddedMassRate = isfield(seedParams, 'enableAddedMassRate') ...
                          && seedParams.enableAddedMassRate;
+mp.enableAddedMassMoment = isfield(seedParams, 'enableAddedMassMoment') ...
+                           && seedParams.enableAddedMassMoment;
 
 end
