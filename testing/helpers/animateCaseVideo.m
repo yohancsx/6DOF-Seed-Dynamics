@@ -28,6 +28,8 @@ function ok = animateCaseVideo(t, x, sp, name, outDir, aopt)
 %     .showSeedVels  per-strip local wind arrows in the zoom panel (default false)
 %     .savePng       also export the final frame as <name>.png     (default true)
 %     .eventTimes    times to mark on the paths (e.g. CoM moves)   (default [])
+%     .blind         no mode colours/labels (for by-eye labelling)  (default false)
+%     .topPanel      'auto' | 'body' | 'groundTrack'               (default 'auto')
 %
 % OUTPUT
 %   ok : true if the video was written, false if it failed (reason printed).
@@ -39,6 +41,8 @@ function ok = animateCaseVideo(t, x, sp, name, outDir, aopt)
     if ~isfield(aopt,'showSeedVels');  aopt.showSeedVels  = false; end
     if ~isfield(aopt,'savePng');       aopt.savePng       = true;  end
     if ~isfield(aopt,'eventTimes');    aopt.eventTimes    = [];    end
+    if ~isfield(aopt,'blind');         aopt.blind         = false; end
+    if ~isfield(aopt,'topPanel');      aopt.topPanel      = 'auto'; end
 
     ok = false;
     if isempty(t) || isempty(x) || any(~isfinite(x(:)))
@@ -64,6 +68,8 @@ function ok = animateCaseVideo(t, x, sp, name, outDir, aopt)
             'playbackSpeed', aopt.playbackSpeed, ...
             'showSeedVels',  aopt.showSeedVels, ...
             'eventTimes',    aopt.eventTimes, ...
+            'blind',         aopt.blind, ...
+            'topPanel',      aopt.topPanel, ...
             'title',         char(name), ...
             'seedParams',    sp));
         if aopt.savePng

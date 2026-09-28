@@ -63,6 +63,13 @@ function animateModeTrajectory(t, x, opts)
 %     .showSeedVels draw per-strip local wind in the zoomed view  (default true)
 %     .shapeOpts    struct forwarded to visualizeSeedShape        (default struct())
 %     .velOpts      struct forwarded to visualizeSeedLocalVels    (default struct())
+%     .blind        true -> no mode colouring, legend or mode in the titles, and
+%                   no classification run at all. For videos to be labelled BY
+%                   EYE, so the classifier's answer cannot bias the label
+%                                                                (default false)
+%     .topPanel     'auto' (CoM-in-body when seedParams is given, else ground
+%                   track) | 'body' | 'groundTrack'. The ground track is the
+%                   useful one for a fixed nut                  (default 'auto')
 %
 % OUTPUT
 %   none -- shows the figure and, if .videoFile is set, writes a video.
@@ -89,10 +96,17 @@ opts = setDefault(opts, 'seedZoom',      1.5);   % zoomed-view half-window = see
 opts = setDefault(opts, 'showSeedVels',  true);  % draw per-strip local wind in the zoomed view
 opts = setDefault(opts, 'shapeOpts',     struct());  % forwarded to visualizeSeedShape
 opts = setDefault(opts, 'velOpts',       struct());  % forwarded to visualizeSeedLocalVels
+opts = setDefault(opts, 'blind',         false); % true -> no mode colours/labels anywhere
+opts = setDefault(opts, 'topPanel',      'auto');% 'auto' | 'body' | 'groundTrack'
 
 % The body-frame CoM panel and the zoomed seed follow-cam both need the seed
 % geometry, so both appear only when seedParams is supplied.
 bodyMode = ~isempty(opts.seedParams);
+% Top-right panel: the CoM-in-body view by default when seed geometry is given
+% (it is what the moving-CoM tests need), or the inertial ground track on
+% request -- which is the more useful one for a FIXED nut, where the body view
+% is a single dot and the ground track shows the helix.
+showBodyPanel = bodyMode && ~strcmpi(opts.topPanel, 'groundTrack');
 if ~isfield(opts, 'figSize')
     if bodyMode; opts.figSize = [1360 780]; else; opts.figSize = [1180 560]; end
 end
@@ -103,7 +117,13 @@ r = x(:, 1:3);   q = x(:, 4:7);   % world CoM position, body->world quaternion
 % =========================================================================
 % 1. MODE TIMELINE (per-sample label) + palette
 % =========================================================================
-if isempty(opts.modeTimeline)
+% BLIND mode (opts.blind): one neutral colour and no label anywhere, for videos
+% that are going to be classified BY EYE -- showing the classifier's answer on
+% screen would bias the very labels meant to check it.
+if opts.blind
+    tl = struct('idx', ones(numel(t), 1), 'list', {{'trajectory'}}, ...
+                'col', [0.15 0.35 0.75]);
+elseif isempty(opts.modeTimeline)
     tl = classifyModeTimeline(t, x, opts.modeOpts);
 else
     tl = opts.modeTimeline;
@@ -218,13 +238,17 @@ hDot3 = scatter3(ax1, nan, nan, nan, opts.dotSize, [0.5 0.5 0.5], 'filled', ...
 xlabel(ax1, 'World X (m)');  ylabel(ax1, 'World Z (m)');  zlabel(ax1, 'World Y (m) -- up');
 view(ax1, opts.view);
 setBounds3(ax1, P3);
-legend(ax1, hLeg, 'Location', 'northeast', 'Interpreter', 'none');
-title(ax1, '3D trajectory (coloured by flight mode)');
+if opts.blind
+    title(ax1, '3D trajectory');
+else
+    legend(ax1, hLeg, 'Location', 'northeast', 'Interpreter', 'none');
+    title(ax1, '3D trajectory (coloured by flight mode)');
+end
 
 % --- TOP-RIGHT: CoM within the seed body (or inertial ground track) ------
 ax2 = nexttile(tlo, 2, [1 1]);
 hold(ax2, 'on');  grid(ax2, 'on');  box(ax2, 'on');
-if bodyMode
+if showBodyPanel
     % seed planform outline (recentred on the geometric centre)
     plot(ax2, outSpan, outChord, 'k-', 'LineWidth', 1.2, 'HandleVisibility', 'off');
     plot(ax2, 0, 0, 'k+', 'MarkerSize', 8, 'LineWidth', 1, 'HandleVisibility', 'off'); % geom centre
@@ -286,7 +310,7 @@ for f = 1:M
     % current-position dots (colour = current mode)
     set(hDot3, 'XData', P3i(1,f), 'YData', P3i(2,f), 'ZData', P3i(3,f), ...
                'CData', cm);
-    if bodyMode
+    if showBodyPanel
         set(hDot2, 'XData', Pbody(1,f), 'YData', Pbody(2,f), 'CData', cm);
     else
         set(hDot2, 'XData', Ptopi(1,f), 'YData', Ptopi(2,f), 'CData', cm);
@@ -296,15 +320,19 @@ for f = 1:M
     if opts.trailOnly
         upto = ti <= ti(f);
         set(hGrow3, 'XData', P3i(1,upto), 'YData', P3i(2,upto), 'ZData', P3i(3,upto));
-        if bodyMode
+        if showBodyPanel
             set(hGrow2, 'XData', Pbody(1,upto), 'YData', Pbody(2,upto));
         else
             set(hGrow2, 'XData', Ptopi(1,upto), 'YData', Ptopi(2,upto));
         end
     end
 
-    title(ax1, sprintf('3D trajectory  --  t = %.2f s   |   mode: %s', ...
-                       ti(f), modeList{idxi(f)}), 'Interpreter', 'none');
+    if opts.blind
+        title(ax1, sprintf('3D trajectory  --  t = %.2f s', ti(f)));
+    else
+        title(ax1, sprintf('3D trajectory  --  t = %.2f s   |   mode: %s', ...
+                           ti(f), modeList{idxi(f)}), 'Interpreter', 'none');
+    end
 
     % --- Zoomed seed follow-cam: full redraw of the seed at this pose -----
     if bodyMode

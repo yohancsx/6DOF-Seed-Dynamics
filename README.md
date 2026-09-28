@@ -94,6 +94,7 @@ is in the [roadmap](#roadmap).
 │   ├── helpers/                   shared machinery (buildSeedParams, seedRHS, metrics, classifiers, …)
 │   ├── planar/                    planar suites (+ planar/inputs/ tuned configs)
 │   ├── shape3d/                   3D suites, the paper comparison, the 3D regressions
+│   ├── classifier/                classifier review set builder + MODE_DEFINITIONS.md
 │   ├── baselines/                 snapshot generation and model diffing
 │   └── archive/                   retired scripts (Spinning_Seed_Dynamics_Test.mlx)
 ├── model_test_results/            baseline snapshots land here (outputs are git-ignored)
@@ -205,6 +206,13 @@ Each script has an editable configuration block at the top.
 | `shape3d/runPaperModeGrid.m` | Mode map over their parameter window (`x_c/a ≤ 0.416`, `y_c/b ≤ 0.208`), both classifiers per cell. Saves before reporting. |
 | `shape3d/reportPaperModeGrid.m` | Reports a saved paper grid: ASCII maps, agreement with the digitised Fig. 2a, a cross-tab, and a figure. |
 | `shape3d/animatePaperCases.m` | Animates the anchors and two boundary cells, to check labels by eye. |
+
+**Classifier review** (roadmap step 1)
+
+| File | What it does |
+|---|---|
+| `classifier/buildClassifierReviewSet.m` | Builds a by-eye labelling set: a coarse nut-position grid on our seed under **both** models, with run IDs shuffled so neither model nor position shows. For each run it writes:<br>• a **blind** animation (no mode colours or labels);<br>• a static summary (whole flight, attitude, cumulative rotation, rates);<br>• the raw trajectory.<br>It also writes `classifier_review.xlsx`: eye-label columns first, then the current code's labels, a blank `label_new` column, metrics, and the vocabulary. Output goes to a new timestamped folder under `Outputs/Classifier Review/`, so a labelled sheet is never overwritten. |
+| `classifier/MODE_DEFINITIONS.md` | Every mode label in words and math: the shared metrics, both current classifiers transcribed exactly (with known defects), and the **eye vocabulary** for labelling. Add new modes here. |
 
 **planar**
 
@@ -407,9 +415,12 @@ never tuning.
 - [ ] **1. Fix the classifier.** Every later step is judged through it.
   - Add explicit **non-physical labels** (end-on / span-down, edge-slide). They count as
     disagreements, and their grid fraction is a tracked metric that should go to zero.
-  - Build a **hand-labelled reference set**: ~30–40 saved trajectories labelled by eye with
-    the picker. Tune thresholds on half, check on the other half, then freeze it as a
-    regression test on the *saved* trajectories.
+  - Build a **hand-labelled reference set** of saved trajectories labelled by eye. Tune
+    thresholds on half, check on the other half, then freeze it as a regression test on the
+    *saved* trajectories.
+  - [x] Tooling: `classifier/buildClassifierReviewSet.m` and `classifier/MODE_DEFINITIONS.md`.
+  - [ ] Label the set.
+  - [ ] Write the new classifier and score it against the labels.
 - [ ] **2. Virtual wind tunnel.** Evaluate the aero model on a plate held fixed at any
   orientation, with imposed rotation rates and no integration: lift, drag, chordwise and
   spanwise CoP, rolling moment vs sideslip, the end-on moment, roll damping.
