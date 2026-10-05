@@ -24,7 +24,9 @@
 %   So a PURE REVOLUTION (psi_dot = 0) at a tilt still has a constant nonzero
 %   omega_z. That is the trap case A exists to catch.
 %
-%   Position: a helix of radius R_h about the vertical, descending at V.
+%   Position: a helix of radius R_h about the vertical, descending at V, generated
+%   as Ry(phi)*[R_h;0;0] -- by the same rotation as the attitude, so the orbit
+%   turns in the same sense as the body, as it does for a real revolving seed.
 %
 % CASES AND WHAT EACH PROVES
 %   A  pure revolution, 11.4 deg tilt (their AR case)      -> AR
@@ -42,6 +44,10 @@
 %      reversal count all recovered to the prescribed values
 %   G  the sign convention matches theirs: nut-side tip below horizontal is
 %      NEGATIVE theta
+%   N1-N9  the six-part classifier (classifySeedMode): autorotation vs
+%      spiralGlide at the 1-span radius, tumble with a level and a TILTED span
+%      (no revolution either way), tight vs wide spiral tumbling, flutter,
+%      end-on fall, parachute
 
 root = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
 addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
@@ -53,7 +59,7 @@ mopts = struct('windowStartFrac', 0.5, 'convergeTol', 0.20, 'refLength', L);
 results = {};
 
 %% A. Pure revolution at a tilt -> AR (and must NOT read as tumbling)
-[tA, xA] = synthMotion(struct('beta',11.4, 'phiDot',40, 'psiDot',0, ...
+[tA, xA] = synthSeedMotion(struct('beta',11.4, 'phiDot',40, 'psiDot',0, ...
                               'Rh',0.02, 'V',1.3, 'T',6));
 pmA = computePaperMetrics(tA, xA, mopts);
 modeA = classifyPaperMode(pmA);
@@ -67,7 +73,7 @@ beta = 38.2;  phiDot = 6.0;  tumbTarget = 7;
 psiDotB = tumbTarget * phiDot;        % psi' IS the prescribed self-rotation rate;
                                       % omega_z is what differs from it, by
                                       % phi_dot*sin(beta)
-[tB, xB] = synthMotion(struct('beta',beta, 'phiDot',phiDot, 'psiDot',psiDotB, ...
+[tB, xB] = synthSeedMotion(struct('beta',beta, 'phiDot',phiDot, 'psiDot',psiDotB, ...
                               'Rh',1.25*L, 'V',1.6, 'T',12));
 pmB = computePaperMetrics(tB, xB, mopts);
 modeB = classifyPaperMode(pmB);
@@ -76,7 +82,7 @@ results(end+1,:) = {'B revolution + steady tumbling -> CST', okB, ...
     sprintf('mode %s, %.2f tumbles/rev, %d reversals', modeB, pmB.tumblesPerRev, pmB.tumbleReversals)};
 
 %% C. The same, with the tumbling direction reversing -> SST
-[tC, xC] = synthMotion(struct('beta',beta, 'phiDot',phiDot, 'psiDot',psiDotB, ...
+[tC, xC] = synthSeedMotion(struct('beta',beta, 'phiDot',phiDot, 'psiDot',psiDotB, ...
                               'Rh',1.89*L, 'V',1.8, 'T',12, 'reversePeriod',3.0));
 pmC = computePaperMetrics(tC, xC, mopts);
 modeC = classifyPaperMode(pmC);
@@ -85,7 +91,7 @@ results(end+1,:) = {'C tumbling with direction reversals -> SST', okC, ...
     sprintf('mode %s, %d reversals', modeC, pmC.tumbleReversals)};
 
 %% D. Straight tilted fall, no rotation -> FA
-[tD, xD] = synthMotion(struct('beta',30, 'phiDot',0, 'psiDot',0, ...
+[tD, xD] = synthSeedMotion(struct('beta',30, 'phiDot',0, 'psiDot',0, ...
                               'Rh',0, 'V',3.0, 'T',6));
 pmD = computePaperMetrics(tD, xD, mopts);
 modeD = classifyPaperMode(pmD);
@@ -94,7 +100,7 @@ results(end+1,:) = {'D tilted fall, no rotation -> FA', okD, ...
     sprintf('mode %s, theta %+.1f, V_d %.2f', modeD, pmD.spanAxisTiltDeg, pmD.descentSpeed)};
 
 %% E. Unsettled, wildly swinging attitude -> CH
-[tE, xE] = synthChaotic(12);
+[tE, xE] = synthSeedMotion(struct('chaotic', true, 'T', 12));
 pmE = computePaperMetrics(tE, xE, mopts);
 modeE = classifyPaperMode(pmE);
 okE = strcmp(modeE,'CH');
@@ -106,7 +112,7 @@ results(end+1,:) = {'E unsettled, swinging attitude -> CH', okE, ...
 % threshold, but the accumulated one-way rotation is only 0.11 turns. This is the
 % motion our model actually produces over the left half of the paper window, and
 % it must NOT be reported as FA (which means a large steady tilt).
-[tH, xH] = synthMotion(struct('beta',0, 'phiDot',0, 'psiDot',0, 'Rh',0, 'V',1.4, ...
+[tH, xH] = synthSeedMotion(struct('beta',0, 'phiDot',0, 'psiDot',0, 'Rh',0, 'V',1.4, ...
                               'T',8, 'rockAmpDeg',40, 'rockHz',7));
 pmH = computePaperMetrics(tH, xH, mopts);
 modeH = classifyPaperMode(pmH);
@@ -129,13 +135,48 @@ results(end+1,:) = {'F metrics recover the prescribed motion', okF, ...
             errTheta, errPhi, errPsi, errTumb, errRad)};
 
 %% G. Sign convention matches theirs (nut-side tip down = negative theta)
-[tG, xG] = synthMotion(struct('beta',-25, 'phiDot',5, 'psiDot',0, 'Rh',0.05, 'V',1.5, 'T',6));
+[tG, xG] = synthSeedMotion(struct('beta',-25, 'phiDot',5, 'psiDot',0, 'Rh',0.05, 'V',1.5, 'T',6));
 pmG = computePaperMetrics(tG, xG, mopts);
 okG = pmB.spanAxisTiltDeg < 0 && pmG.spanAxisTiltDeg > 0 ...
       && abs(pmG.spanAxisTiltDeg - 25) < 1e-9;
 results(end+1,:) = {'G theta sign: nut-side tip down is negative', okG, ...
     sprintf('beta=+38.2 -> %+.1f deg,  beta=-25 -> %+.1f deg', ...
             pmB.spanAxisTiltDeg, pmG.spanAxisTiltDeg)};
+
+%% N. The six-part classifier (classifySeedMode) on the same synthetic motion
+% Each case is built so its name is known by construction. Span length L, so the
+% tight/wide boundary (1 span) sits at Rh = L. N4 is the trap that motivated
+% measuring revolution from the span HEADING: a tumble about a tilted span axis
+% projects onto the body's spin about the vertical, but is not a revolution.
+so = struct('windowStartFrac', 0.5, 'convergeTol', 0.20, 'spanLength', L);
+nCases = { ...
+  'N1 revolution, radius 0.33 span -> autorotation', 'autorotation', ...
+      struct('beta',40, 'phiDot',20, 'psiDot',0,  'Rh',0.33*L, 'V',1.5, 'T',8); ...
+  'N2 revolution, radius 2.5 span -> spiralGlide',   'spiralGlide', ...
+      struct('beta',40, 'phiDot',10, 'psiDot',0,  'Rh',2.5*L,  'V',1.5, 'T',8); ...
+  'N3 tumble, level span, no revolution -> tumble',  'tumble', ...
+      struct('beta',0,  'phiDot',0,  'psiDot',40, 'Rh',0,      'V',1.5, 'T',8); ...
+  'N4 tumble, span tilted 25 deg, no revolution -> tumble', 'tumble', ...
+      struct('beta',25, 'phiDot',0,  'psiDot',40, 'Rh',0,      'V',1.5, 'T',8); ...
+  'N5 tumble + revolution within a span -> tightSpiralTumble', 'tightSpiralTumble', ...
+      struct('beta',25, 'phiDot',8,  'psiDot',60, 'Rh',0.2*L,  'V',1.8, 'T',8); ...
+  'N6 tumble + revolution beyond a span -> spiralTumble', 'spiralTumble', ...
+      struct('beta',25, 'phiDot',8,  'psiDot',60, 'Rh',1.5*L,  'V',1.8, 'T',8); ...
+  'N7 rocking, never a full turn -> flutter',        'flutter', ...
+      struct('beta',0,  'phiDot',0,  'psiDot',0,  'Rh',0,      'V',1.4, 'T',8, ...
+             'rockAmpDeg',40, 'rockHz',7); ...
+  'N8 span 80 deg below horizontal, no rotation -> endOnFall', 'endOnFall', ...
+      struct('beta',80, 'phiDot',0,  'psiDot',0,  'Rh',0,      'V',6.0, 'T',6); ...
+  'N9 broadside, straight down -> parachute',        'parachute', ...
+      struct('beta',0,  'phiDot',0,  'psiDot',0,  'Rh',0,      'V',1.3, 'T',6)};
+for c = 1:size(nCases,1)
+    [tN, xN] = synthSeedMotion(nCases{c,3});
+    smN = computeSeedModeMetrics(tN, xN, so);
+    [mN, pN] = classifySeedMode(smN);
+    okN = strcmp(mN, nCases{c,2});
+    results(end+1,:) = {nCases{c,1}, okN, sprintf('got %s [%s/%s/%s], heading rate %.1f', ...
+        mN, pN.flip, pN.revolution, pN.attitude, smN.spanHeadingRate)}; %#ok<SAGROW>
+end
 
 %% Report
 fprintf('\n');
@@ -152,78 +193,7 @@ else
 end
 
 
-% =========================================================================
-% LOCAL: build an exact rigid-body motion and its 13-state history
-% =========================================================================
-function [t, x] = synthMotion(p)
-% p: .beta (deg, tilt of the long axis below horizontal), .phiDot (rad/s,
-%    revolution about the world vertical), .psiDot (rad/s, self-rotation about the
-%    body long axis), .Rh (m, helix radius), .V (m/s, descent), .T (s),
-%    .reversePeriod (s, optional: flip the sign of psiDot every half period).
-    if ~isfield(p,'reversePeriod'); p.reversePeriod = 0; end
-    if ~isfield(p,'rockAmpDeg');    p.rockAmpDeg    = 0; end
-    if ~isfield(p,'rockHz');        p.rockHz        = 0; end
-    dt = 1e-3;   t = (0:dt:p.T).';   n = numel(t);
-
-    % psi(t), reversing if asked
-    if p.rockAmpDeg > 0
-        % pure rocking: psi oscillates, so it never accumulates a full turn
-        w        = 2*pi*p.rockHz;
-        psi      = deg2rad(p.rockAmpDeg) * sin(w*t);
-        psiDot_t = deg2rad(p.rockAmpDeg) * w * cos(w*t);
-    elseif p.reversePeriod > 0
-        sgn = sign(sin(2*pi*t/p.reversePeriod));  sgn(sgn==0) = 1;
-        psiDot_t = p.psiDot * sgn;
-        psi = cumtrapz(t, psiDot_t);
-    else
-        psiDot_t = p.psiDot * ones(n,1);
-        psi = p.psiDot * t;
-    end
-    phi = p.phiDot * t;
-
-    qB = axisAngleToQuat([1;0;0], deg2rad(p.beta));    % fixed tilt, world X
-    x  = zeros(n, 13);
-    for k = 1:n
-        qA = axisAngleToQuat([0;1;0], phi(k));         % revolution, world Y
-        qC = axisAngleToQuat([0;0;1], psi(k));         % self-rotation, body z
-        q  = quatMultiply(quatMultiply(qA, qB), qC);
-        R  = quatToRotm(q);
-
-        % omega_body = phi_dot*(R'*Yhat) + psi_dot*zhat   (exact, see header)
-        omega = p.phiDot * (R.' * [0;1;0]) + psiDot_t(k) * [0;0;1];
-
-        r = [p.Rh*cos(phi(k)); -p.V*t(k); p.Rh*sin(phi(k))];
-        v = [-p.Rh*p.phiDot*sin(phi(k)); -p.V; p.Rh*p.phiDot*cos(phi(k))];
-        x(k,:) = [r.', q.', v.', omega.'];
-    end
-end
-
-function [t, x] = synthChaotic(T)
-% An attitude that swings widely and never settles, with a descent speed that
-% keeps drifting -- so converged is false and the tilt spread is large.
-    dt = 1e-3;  t = (0:dt:T).';  n = numel(t);
-    beta = 50*sin(2*pi*t/3.1) + 30*sin(2*pi*t/1.7 + 1.0);      % deg, wild swing
-    phi  = 0.8*sin(2*pi*t/5.3);
-    V    = 2.0 + 1.5*t/T;                                       % never settles
-    x = zeros(n,13);
-    for k = 1:n
-        qA = axisAngleToQuat([0;1;0], phi(k));
-        qB = axisAngleToQuat([1;0;0], deg2rad(beta(k)));
-        q  = quatMultiply(qA, qB);
-        x(k,:) = [0.01*sin(t(k)), -cumtrapzScalar(t,V,k), 0.01*cos(t(k)), ...
-                  q.', 0, -V(k), 0, 0, 0, 0];
-    end
-    % body angular velocity by finite difference of the quaternion (adequate:
-    % this case only has to be incoherent, not exact)
-    for k = 2:n-1
-        R1 = quatToRotm(x(k-1,4:7).');  R2 = quatToRotm(x(k+1,4:7).');
-        W  = R1.' * (R2 - R1) / (2*dt);
-        x(k,11:13) = [W(3,2), W(1,3), W(2,1)];
-    end
-end
-
-function y = cumtrapzScalar(t, V, k)
-    if k < 2; y = 0; else; y = trapz(t(1:k), V(1:k)); end
-end
+% The synthetic motions come from testing/helpers/synthSeedMotion.m (promoted
+% from a local function here so the mode-example gallery can share them).
 
 function s = pf(ok);  if ok; s = 'PASS'; else; s = 'FAIL'; end;  end

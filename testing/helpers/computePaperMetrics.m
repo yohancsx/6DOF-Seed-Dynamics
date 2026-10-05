@@ -103,7 +103,15 @@ function pm = computePaperMetrics(t, x, opts)
     [~, hValid, centre] = fitCircleRadius(X, Z);
     pm.helixCentre = centre;
     if hValid
-        phi = unwrap(atan2(Z - centre(2), X - centre(1)));
+        % Angle measured about +Y (right-handed, world Y up): a rotation by +phi
+        % about +Y carries the X axis toward -Z, so the angle is atan2(-dZ, dX).
+        % This is the SAME sense as omega . Yhat, which the psi' decomposition
+        % below requires. (Fixed 2026-10: this used atan2(+dZ, dX), the angle
+        % about -Y, so phi' had the opposite sign to the body rotation and
+        % psi' = omega_z - phi'*sin(theta) DOUBLED a steady revolution instead of
+        % cancelling it -- every steady revolver read as continuous tumbling.
+        % testPaperMetrics' synthetic orbit had the matching flip, so it passed.)
+        phi = unwrap(atan2(-(Z - centre(2)), X - centre(1)));
         p   = polyfit(t(iw), phi, 1);
         pm.revolutionRate = p(1);
     else

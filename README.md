@@ -32,7 +32,9 @@ phases 5–6):
 - **Right:** descent speed on the Hou et al. (2025) plate, 1.04–1.36 × `sqrt(σg/ρ)` against
   a published O(1) prefactor.
 - **Wrong:** attitude. The model cannot hold a fixed attitude about its long axis, and 0/104
-  cells agree with the published phase map.
+  cells agree with the published phase map. *Both measured before a sign error in the paper
+  metrics was fixed (2026-10-03). That error made every steady revolver read as spiral
+  tumbling, so the comparison has to be re-run (log, phase 7).*
 - **Wrong:** with spanwise flow. Without the planar patches it degenerates by rolling and
   sliding spanwise, and can fall span-down.
 
@@ -212,7 +214,10 @@ Each script has an editable configuration block at the top.
 | File | What it does |
 |---|---|
 | `classifier/buildClassifierReviewSet.m` | Builds a by-eye labelling set: a coarse nut-position grid on our seed under **both** models, with run IDs shuffled so neither model nor position shows. For each run it writes:<br>• a **blind** animation (no mode colours or labels);<br>• a static summary (whole flight, attitude, cumulative rotation, rates);<br>• the raw trajectory.<br>It also writes `classifier_review.xlsx`: eye-label columns first, then the current code's labels, a blank `label_new` column, metrics, and the vocabulary. Output goes to a new timestamped folder under `Outputs/Classifier Review/`, so a labelled sheet is never overwritten. |
-| `classifier/MODE_DEFINITIONS.md` | Every mode label in words and math: the shared metrics, both current classifiers transcribed exactly (with known defects), and the **eye vocabulary** for labelling. Add new modes here. |
+| `classifier/buildRelabelSheet.m` | Turns a labelled review set into a second-pass sheet with **one dropdown per classifier part**, without re-simulating:<br>• pre-filled from the first-pass labels, with only the parts each label actually states;<br>• `name_from_parts` (the classifier's rules applied to your parts) and a `MISMATCH` check;<br>• the code's answers grouped and collapsed.<br>Writes `classifier_review_v2.xlsx` next to the first pass and never modifies it. Needs Excel (driven via `actxserver`). |
+| `classifier/makeModeExamples.m` | **A visual dictionary of the modes.** One idealized animation + still per mode name, plus an `INDEX.md` explaining each, written to `Outputs/Mode Examples/`. The examples are **synthetic** (prescribed textbook motion from `helpers/synthSeedMotion.m`, slowed to watchable rates), so every label has one, including modes the model never produces. Each example must classify as its own label before it is rendered. |
+| `classifier/MODE_DEFINITIONS.md` | **The mode definitions**, in words and math. The six parts of the new classifier and every boundary between them, the 17 mode names in order of precedence (also the eye-labelling vocabulary), which modes are non-physical, and the two older classifiers transcribed for comparison. Kept in step with the three files below; add new modes here. |
+| `helpers/classifySeedMode.m`, `defaultSeedModeThresholds.m`, `computeSeedModeMetrics.m` | **The six-part classifier.** It judges six things independently and builds the name from them: flip about the span (from attitude), revolution (from the span heading), span attitude, path, regularity, and physicality. Every boundary lives in the thresholds file, dated where it was decided on the review set. Synthetic regression: cases N1–N9 in `shape3d/testPaperMetrics.m`. |
 
 **planar**
 
@@ -419,8 +424,12 @@ never tuning.
     thresholds on half, check on the other half, then freeze it as a regression test on the
     *saved* trajectories.
   - [x] Tooling: `classifier/buildClassifierReviewSet.m` and `classifier/MODE_DEFINITIONS.md`.
-  - [ ] Label the set.
-  - [ ] Write the new classifier and score it against the labels.
+  - [ ] Label the set (first pass done 2026-10-03).
+  - [ ] Paper-metric sign error fixed: steady revolvers no longer read as spiral tumbling.
+  - [ ] Six-part classifier written (`classifySeedMode`), synthetic regression passing.
+  - [x] Visual dictionary of the modes (`classifier/makeModeExamples.m` → `Outputs/Mode Examples`).
+  - [ ] Re-run the paper comparison: every paper-classifier result before 2026-10-03 has the
+        sign error.
 - [ ] **2. Virtual wind tunnel.** Evaluate the aero model on a plate held fixed at any
   orientation, with imposed rotation rates and no integration: lift, drag, chordwise and
   spanwise CoP, rolling moment vs sideslip, the end-on moment, roll damping.
@@ -446,6 +455,13 @@ never tuning.
     probabilities rather than single labels. Apply the same treatment to Hou et al.
 
 ### Other open items
+
+- [ ] **Second-pass relabelling (deferred 2026-10-04).** The main classifier issues are fixed;
+  scoring against eye labels can wait. Everything is ready:
+  - `classifier_review_v2.xlsx` in the review set: one dropdown per part, pre-filled, with a
+    `MISMATCH` check (`classifier/buildRelabelSheet.m`).
+  - The steps: relabel the flagged runs (MODE_DEFINITIONS section 3), then score
+    `label_new` on a held-out half.
 
 - [ ] `planar/runSeedModeGrid.m` hardcodes `seed6DOFODE` instead of `seedRHS`, so it cannot run
   the 3D model. The 3D suite's stage E is the 3D grid in the meantime.
