@@ -34,7 +34,14 @@ resultsFile = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Co
 D = load(resultsFile);
 cfg = D.cfg;   chordFrac = D.chordFrac;   spanFrac = D.spanFrac;   modeIdx = D.modeIdx;
 [Nz, Nx] = size(modeIdx);          % Nz span rows, Nx chord cols
-[modeList, modeCol] = seedModeColors();
+% A grid saved with its own vocabulary (the 3D suite saves the six-part
+% classifier's modeList/modeCol) is drawn with it; older grids use the original
+% classifyFlightMode palette.
+if isfield(D, 'modeList') && isfield(D, 'modeCol')
+    modeList = D.modeList;   modeCol = D.modeCol;
+else
+    [modeList, modeCol] = seedModeColors();
+end
 
 % Release condition + base seed -- reconstruct EXACTLY what the grid ran. Use the
 % saved release if present (newer grids), else the grid's default pi/6-about-z.
@@ -115,7 +122,7 @@ end
 % =========================================================================
 function animateGridRun(iz, ix, D, baseBsp, q0, omega0, outputFolder, animOpts)
     cfg = D.cfg;   c = cfg.chordLength;   S = cfg.spanLength;
-    [modeList, ~] = seedModeColors();
+    if isfield(D, 'modeList'); modeList = D.modeList; else; [modeList, ~] = seedModeColors(); end
 
     % Rebuild the seed at this nut position and integrate (same as the grid).
     bsp = baseBsp;
