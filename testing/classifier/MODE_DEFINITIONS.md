@@ -60,13 +60,18 @@ Each part is judged on its own. Boundaries come from `defaultSeedModeThresholds`
 - the 0.25 glide ratio;
 - wobbling spin and chaotic are non-physical.
 
+**Decided 2026-10-05**: the flip boundary is **0.10 turn (36°)** peak-to-peak, raised
+from a judged 0.05 (18°). Revolvers in the Hou et al. window rock 21–30° about the span
+while revolving tightly at a steady tilt. That is autorotation with a pitch rock, not a
+flutter spiral.
+
 The other boundaries are judgements, to be checked against labels.
 
 **A. Flip**: rotation about the span axis
 
 | value | rule | in words |
 |---|---|---|
-| `none` | `flipPPTurns` < 0.05 | the plate does not turn about its span |
+| `none` | `flipPPTurns` < **0.10** (36°) | the plate does not turn about its span, or only rocks slightly |
 | `flutter` | max one-way leg < 1 turn | rocks back and forth, never completes a turn |
 | `tumble` | ≥ 1 turn one way, no reversals | continuous end-over-end turns |
 | `segmentedTumble` | ≥ 1 turn, with < 3 reversals or reversal CV < 0.35 | whole turns that reverse direction periodically |

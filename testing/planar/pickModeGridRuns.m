@@ -15,20 +15,42 @@
 % animateModeTrajectory. Re-running is cheap (~2 s per cell).
 %
 % WORKFLOW (run as a live script, section by section):
+%   Section 0 -> picks the grid: by default the NEWEST 3D-suite grid in
+%                model_test_results/ (set resultsFile to open any other).
 %   Section 1 -> a map window opens. LEFT-CLICK a cell to select it (a numbered
 %                marker appears and its grid mode prints). Click as many as you
 %                like. Press ANY KEY (or right-click) in the figure to finish.
-%   Section 2 -> set outputFolder, then Run Section: one .mp4 per selected cell.
+%   Section 2 -> Run Section: one .mp4 per selected cell, written NEXT TO THE
+%                GRID in <grid folder>/mode_grid_picks/, with a picks_log.csv
+%                recording each pick (cell, label, parts, video).
+%
+% For grids labelled by the six-part classifier (the 3D suite's mode_grid_3D.mat),
+% videos are BLIND (no mode colouring from the older classifier, which would
+% contradict the label) and titled with the grid's six-part label and parts.
 %
 % Body axes: x = chord, y = normal, z = span.
 
-%% 0. Configuration  -- EDIT paths here
-helpersFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics\testing\helpers";
-addpath(helpersFolder);
-% NOTE: physics/ and visualization/ assumed on the MATLAB path.
+%% 0. Configuration  -- EDIT here if needed
+root = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics";
+addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
+        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
+        fullfile(root,'physics3d'), fullfile(root,'visualization'), ...
+        fullfile(root,'testing','helpers'));
 
-% Saved results from runSeedModeGrid (chordFrac, spanFrac, modeIdx, cfg [, q0, omega0]).
-resultsFile = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\test_suite_3D\2026-09-24_194534_3D_core_plus_edge_drag\mode_grid_3D.mat";
+% Grid to pick from. "" = the NEWEST model_test_results/*_3D_*/mode_grid_3D.mat
+% (run folders start with a timestamp, so the last by name is the newest). Set a
+% path to open any other grid, including a planar Mode_Grid_results.mat.
+resultsFile = "";
+if resultsFile == ""
+    g = dir(fullfile(root, 'model_test_results', '*_3D_*', 'mode_grid_3D.mat'));
+    if isempty(g)
+        error('pickModeGridRuns:noGrid', 'No mode_grid_3D.mat under %s.', ...
+              fullfile(root, 'model_test_results'));
+    end
+    [~, o] = sort({g.folder});   g = g(o);
+    resultsFile = string(fullfile(g(end).folder, g(end).name));
+end
+fprintf('Grid: %s\n', resultsFile);
 
 %% 1. Open the phase map and click the runs to animate
 D = load(resultsFile);
@@ -96,10 +118,12 @@ while true
     fprintf('  [%d] chord=%.2f  span=%.2f  ->  %s\n', ...
             k, chordFrac(ix), spanFrac(iz), modeList{modeIdx(iz,ix)});
 end
-fprintf('Selected %d run(s). Now set outputFolder in Section 2 and run it.\n', size(sel,1));
+fprintf('Selected %d run(s). Now run Section 2.\n', size(sel,1));
 
-%% 2. Generate animations for the selected runs  -- EDIT outputFolder
-outputFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\test_suite_3D\2026-09-24_194534_3D_core_plus_edge_drag\selectedModeGridRuns";
+%% 2. Generate animations for the selected runs
+% Written beside the grid file, so a run folder holds its grid AND the picks
+% made from it.
+outputFolder = fullfile(fileparts(resultsFile), "mode_grid_picks");
 if ~exist(outputFolder, 'dir'); mkdir(outputFolder); end
 
 % Animation options (forwarded to animateModeTrajectory). playbackSpeed<1 = slow-mo.
@@ -140,12 +164,40 @@ function animateGridRun(iz, ix, D, baseBsp, q0, omega0, outputFolder, animOpts)
     [t, x] = ode45(@(tt,xx) rhs(tt, xx, sp), cfg.tspan, x0, odeOpts);
 
     lbl = modeList{D.modeIdx(iz,ix)};
+    sixPart = isfield(D, 'partsGrid');            % labelled by classifySeedMode
+    parts = '';
+    if sixPart; parts = char(D.partsGrid(iz,ix)); end
     tag = sprintf('chord%03.0f_span%03.0f_%s', 100*D.chordFrac(ix), 100*D.spanFrac(iz), lbl);
     vfile = fullfile(outputFolder, [matlab.lang.makeValidName(tag) '.mp4']);
     ttl = sprintf('nut chord=%.2fc  span=%.2fS   (grid mode: %s)', ...
                   D.chordFrac(ix), D.spanFrac(iz), lbl);
+    if sixPart; ttl = sprintf('%s  [%s]', ttl, parts); end
 
     o = animOpts;   o.videoFile = char(vfile);   o.title = ttl;   o.seedParams = sp;
-    animateModeTrajectory(t, x, o);
-    fprintf('    wrote %s\n', vfile);
+    if sixPart
+        % no colouring by the older classifier's timeline -- it would contradict
+        % the six-part label in the title; the ground track shows any revolution
+        o.blind = true;   o.topPanel = 'groundTrack';
+    end
+    try
+        animateModeTrajectory(t, x, o);
+        close(gcf);
+        fprintf('    wrote %s\n', vfile);
+    catch ME
+        if ~isempty(findobj('Type','figure')); close(gcf); end
+        fprintf(2, '    FAILED %s: %s\n', tag, ME.message);
+        return
+    end
+
+    % one row per pick, so the folder records what was looked at and why
+    row = table(string(datetime('now','Format','yyyy-MM-dd HH:mm:ss')), ...
+                D.chordFrac(ix), D.spanFrac(iz), string(lbl), string(parts), ...
+                string([matlab.lang.makeValidName(tag) '.mp4']), ...
+                'VariableNames', {'time','chordFrac','spanFrac','gridLabel','parts','video'});
+    logFile = fullfile(outputFolder, 'picks_log.csv');
+    if isfile(logFile)
+        writetable(row, logFile, 'WriteMode', 'append', 'WriteVariableNames', false);
+    else
+        writetable(row, logFile);
+    end
 end

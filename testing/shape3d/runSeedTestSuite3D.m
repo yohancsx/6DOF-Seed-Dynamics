@@ -39,7 +39,9 @@
 % non-physical fraction, and the span-tilt distribution of revolvers. Written to
 % <run>/tracking_3D.txt, and one row per run is appended to
 % <outPath>/tracking_history_3D.csv so runs can be compared over time.
-% Run folders are named <timestamp>_<githash>_3D_<label>.
+% Run folders are named <timestamp>_<githash>_3D_<label>, under model_test_results/
+% (git-ignored outputs). Stage F also writes paper_comparison_3D.png: ours vs the
+% digitised Fig. 2a, with every disagreeing cell outlined.
 %
 % WHY IT EXISTS: to turn physics terms off and see what happens. Every stage runs
 % with the SAME switch overrides, applied through cfg so buildSeedParams warns if
@@ -56,7 +58,9 @@
 
 %% 1. Configuration  -- EDIT HERE
 root    = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics";
-outPath = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\test_suite_3D";
+% Run folders (and tracking_history_3D.csv) go beside the baseline snapshots, in
+% the repo's git-ignored model_test_results/ -- not the separate Outputs folder.
+outPath = fullfile(root, "model_test_results");
 addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
         fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
         fullfile(root,'physics3d'), fullfile(root,'visualization'), ...
@@ -589,6 +593,12 @@ if cfg.runPaperGrid
     save(fullfile(runDir,'paper_mode_grid_3D.mat'), 'xaGrid','ybGrid','newMode','paperMode', ...
          'ourMode','refMode','pVd','pTh','pTilt','pRev','agreeFrac','paperTrack', ...
          'pcfg','pinfo','effSwitches');
+    % At-a-glance comparison: ours (six-part), ours mapped to their families with
+    % disagreements outlined in red, and the digitised Fig. 2a.
+    f = plotPaperComparison(xaGrid, ybGrid, newMode, refMode, paperTrack, ...
+                            sprintf('[%s, git %s]', cfg.label, gh));
+    drawnow;  exportgraphics(f, fullfile(runDir,'paper_comparison_3D.png'), 'Resolution',150);
+    close(f);
 
     pal = seedModePalette();
     refOf = containers.Map({'AR','ST','CH','FA'}, {'A','T','X','F'});

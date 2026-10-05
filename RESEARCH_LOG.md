@@ -33,7 +33,8 @@ time. Where the reasoning was not written down, the entry says so rather than gu
 | 2026-09-21 | `331ff04` | 4 | Edge drag, added-mass rate, LEV implemented |
 | 2026-09-22–23 | `46ab3f1` | 5 | Hou et al. comparison; Kirchhoff pair on by default; 0% map agreement |
 | 2026-09-24–26 | `46ab3f1` | 6 | 3D test suite; roll/slide degeneration diagnosed; low-AR plan |
-| 2026-09-27 → 10-03 | (uncommitted) | 7 | By-eye review set; paper-metric sign error fixed; six-part classifier |
+| 2026-09-27 → 10-03 | `e3b6694` | 7 | By-eye review set; paper-metric sign error fixed; six-part classifier |
+| 2026-10-05 | `c6d348c` | 8 | Re-baseline with the fixed classifier; tracked numbers per grid run |
 
 ---
 
@@ -578,6 +579,39 @@ Two first-draft rules were corrected on the review data:
 - **On the 72 review runs:** the labels match the distilled scheme. The remaining
   disagreements with the eye labels are listed in `MODE_DEFINITIONS.md` section 3 for
   re-watching.
+
+## Phase 8 — Re-baseline with the fixed classifier (2026-10-05)
+
+**Built.**
+
+- `runSeedTestSuite3D` now labels every stage with the six-part classifier.
+- Stages E and F report the tracked numbers (`summarizeModeGrid`): paper agreement,
+  non-physical fraction, and the span tilt of revolvers. One row per run is appended to
+  `tracking_history_3D.csv`.
+
+**Baseline.** `model_test_results/2026-10-05_015940_c6d348c_3D_baseline`, builder-default
+physics.
+
+| | our seed, 20×20, nut 0–1.5 chord/span | Hou et al. window, 13×8 |
+|---|---|---|
+| non-physical | **21%**: wobblingSpin 46, endOnSpin 32, edgeSlide 3, chaotic 3 | **0%** |
+| revolvers | 72% of cells; span tilt median **54°**; bimodal (58 cells at 0–20°, 212 at 40–80°) | 61% of cells; median **25°**; 83% flat (< 30°) |
+| paper agreement | – | **1.9%** six-part; **30.8%** paper-vocabulary (was 0% before the sign fix) |
+| dominant label | spiralGlide 141 | flutterSpiral 61, flutter 38 |
+
+**Reading.**
+
+1. **The steep-tilt and end-on defects belong to our seed at large nut offsets**, most of
+   them off the planform. Inside the paper's physically reachable window there are no
+   non-physical cells, and revolvers are fairly flat: 25°, against Hou et al.'s 11°.
+2. **The gap between 1.9% and 30.8% is the flip boundary**, not physics. The paper window's
+   revolvers are tight (radius 0.13–0.24 span) and steady (tilt std ≈ 1°), but rock 21–30°
+   peak-to-peak about the span. That is just over the judged 0.05-turn (18°) boundary, so
+   they read as `flutterSpiral`, not `autorotation`. The FA and CH cells rock 50–54°.
+3. **The paper-window mismatch is now specific.**
+   - Their ST region gives flutter (22/25 cells): no tumbling.
+   - Their FA region gives a revolving flutter spiral (16/16): no tilted rotation-free fall.
+   - Their AR region revolves tightly, but rocks and sits 14° too steep.
 
 ---
 

@@ -10,8 +10,12 @@ function th = defaultSeedModeThresholds()
 % Units: rad/s, deg, turns, spans, dimensionless ratios.
 
     % --- A. Rotation about the span axis (flip), from the attitude angle psi --
-    th.flipNoneTurns    = 0.05;  % psi peak-to-peak below this -> no flip at all
-                                 % (judgement; steady revolvers sit at ~0)
+    th.flipNoneTurns    = 0.10;  % psi peak-to-peak below this (36 deg) -> no flip.
+                                 % DECIDED 2026-10-05 (was 0.05 = 18 deg, judged):
+                                 % the Hou-window revolvers rock 21-30 deg p-p
+                                 % about the span while revolving tightly at a
+                                 % steady tilt -- autorotation with a pitch rock,
+                                 % not a flutter spiral.
     th.tumbleTurns      = 1.0;   % a one-way leg of >= 1 whole turn -> tumbling;
                                  % below it, the plate rocks -> flutter
     th.flipHysteresisTurns = 0.25; % psi must retreat this far to count a reversal

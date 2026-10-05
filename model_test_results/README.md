@@ -25,6 +25,18 @@ model_test_results/
                                    # classifiers per cell, agreement with Fig. 2a
 ```
 
+**3D test-suite baselines** live here too, as
+`<YYYY-MM-DD_HHMMSS>_<githash>_3D_baseline/`. They are full runs of
+[`testing/shape3d/runSeedTestSuite3D.m`](../testing/shape3d/runSeedTestSuite3D.m) at
+builder-default physics: twist, curvature, the 2D-parity sweeps, CoM movement, our-seed
+mode grid and the Hou et al. comparison, all labelled by the six-part classifier. Each
+contains `summary_3D.txt` and `tracking_3D.txt` (paper agreement, non-physical fraction,
+revolver span tilt). It also holds `paper_comparison_3D.png`: our paper-window map beside the
+digitised Fig. 2a, with disagreements outlined. Videos made with the grid picker
+(`testing/planar/pickModeGridRuns.m`) land in that run's `mode_grid_picks/`.
+`tracking_history_3D.csv` in this folder accumulates one row per run. The 3D suite writes
+here by default.
+
 Diff a snapshot's planar and shape3d stages with
 [`testing/baselines/compareBaselineModels.m`](../testing/baselines/compareBaselineModels.m).
 
