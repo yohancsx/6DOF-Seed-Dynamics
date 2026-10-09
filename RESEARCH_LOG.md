@@ -34,7 +34,7 @@ time. Where the reasoning was not written down, the entry says so rather than gu
 | 2026-09-22–23 | `46ab3f1` | 5 | Hou et al. comparison; Kirchhoff pair on by default; 0% map agreement |
 | 2026-09-24–26 | `46ab3f1` | 6 | 3D test suite; roll/slide degeneration diagnosed; low-AR plan |
 | 2026-09-27 → 10-03 | `e3b6694` | 7 | By-eye review set; paper-metric sign error fixed; six-part classifier |
-| 2026-10-05 | `c6d348c` | 8 | Re-baseline with the fixed classifier; tracked numbers per grid run |
+| 2026-10-05 | `c6d348c`, `ca9e83e` | 8 | Re-baseline with the fixed classifier; tracked numbers per grid run; flip boundary 36° |
 
 ---
 
@@ -612,6 +612,26 @@ physics.
    - Their ST region gives flutter (22/25 cells): no tumbling.
    - Their FA region gives a revolving flutter spiral (16/16): no tilted rotation-free fall.
    - Their AR region revolves tightly, but rocks and sits 14° too steep.
+
+**Decision (2026-10-05): flip boundary raised to 36° (0.10 turn).** A tight, steady revolver
+rocking 21–30° about its span is autorotation with a pitch rock. Grids-only rerun:
+`model_test_results/2026-10-05_120022_ca9e83e_3D_baseline`, with the new
+`paper_comparison_3D.png`.
+
+| | 18° (`c6d348c`) | 36° (`ca9e83e`) |
+|---|---|---|
+| paper agreement (six-part) | 1.9% (2/104) | **14.4% (15/104)** |
+| paper-window labels | flutterSpiral 61, flutter 38, autorotation 2 | flutterSpiral 48, flutter 34, **autorotation 15**, parachute 4 |
+| our-seed non-physical / revolver tilt median | 21% / 54° | 21% / 54° (unchanged) |
+
+All 15 matches are in their AR region (top two rows, x_c/a ≥ 0.13). What still disagrees:
+
+- **ST region (25 cells):** flutter, with no whole tumbling turns.
+- **FA region (16):** flutter spiral, revolving where they fall without rotation.
+- **CH region (27):** flutter and flutter spiral.
+- **Left end of the AR rows:** parachute or flutter spiral.
+
+The AR anchor now reads `autorotation`, still at θ = −29.6° against −11.4°.
 
 ---
 
