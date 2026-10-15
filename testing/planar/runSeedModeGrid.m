@@ -12,9 +12,11 @@
 % fraction of chordLength (x) and spanLength (z).
 
 %% 0. Configuration  -- EDIT HERE
-helpersFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics\testing\helpers";
-addpath(helpersFolder);
-% NOTE: physics/ and visualization/ assumed on the MATLAB path.
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
 
 cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;
 cfg.bulkDensity = 65;      cfg.numStrips   = 10;      cfg.tSamples  = 0;
@@ -171,7 +173,8 @@ legend('Location', 'eastoutside');
 xlim([min(xSpan),  max(xSpan)]);
 ylim([min(yChord), max(yChord)]);
 
-outDir = char(fileparts(char(helpersFolder)));
+outDir = fullfile(P.results, 'planar_mode_grid');
+if ~exist(outDir, 'dir'); mkdir(outDir); end
 savefig(gcf, fullfile(outDir, 'Mode_Grid.fig'));
 exportgraphics(gcf, fullfile(outDir, 'Mode_Grid.png'), 'Resolution', 150);
 save(fullfile(outDir, 'Mode_Grid_results.mat'), 'chordFrac', 'spanFrac', 'modeGrid', 'modeIdx', 'cfg', 'q0', 'omega0');

@@ -31,11 +31,12 @@
 % Body axes: x = chord, y = normal, z = span.
 
 %% 0. Configuration  -- EDIT here if needed
-root = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics";
-addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
-        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
-        fullfile(root,'physics3d'), fullfile(root,'visualization'), ...
-        fullfile(root,'testing','helpers'));
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+root = P.root;
 
 % Grid to pick from. "" = the NEWEST model_test_results/*_3D_*/mode_grid_3D.mat
 % (run folders start with a timestamp, so the last by name is the newest). Set a

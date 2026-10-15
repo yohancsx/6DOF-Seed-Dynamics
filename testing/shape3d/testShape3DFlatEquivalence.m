@@ -26,10 +26,12 @@
 %      now differ. If this difference ever returns to zero, a cut term has crept
 %      back into the 3D RHS.
 
-root = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
-addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
-        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
-        fullfile(root,'physics3d'), fullfile(root,'testing','helpers'));
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+root = P.root;
 
 tol = 1e-12;
 

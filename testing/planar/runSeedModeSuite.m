@@ -11,9 +11,11 @@
 % bottom, then the viewer.
 
 %% 0. Configuration  -- working physics + base seed
-helpersFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics\testing\helpers";
-addpath(helpersFolder);
-% NOTE: physics/ and visualization/ are assumed already on the MATLAB path.
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
 
 % --- Baseline seed geometry / material (working base seed) ----------------
 cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;

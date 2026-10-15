@@ -1,8 +1,11 @@
 %[text] # Seed Dynamics ODE Test
 %[text] Integration harness for seed6DOFODE. Builds the same rectangular test seed used in Spinning\_Seed\_Dynamics\_Test.mlx, adds the fluid/gravity parameters required by the dynamics RHS (never set anywhere else), runs a full ode45 integration, then plots the resulting 3D trajectory and Euler-angle rates.
 %[text] Sections: 1. Setup seed shape, mass, and environment parameters 2. Visualize seed shape (sanity check before integrating) 3. Run the dynamics (ode45) 4. Visualize the 3D trajectory and Euler-angle rates
-addpath(genpath("physics"));
-addpath("visualization");
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
 %%
 %[text] ## 1. Setup seed shape, mass, and environment parameters
 %[text] Geometry & material parameters (matches Spinning\_Seed\_Dynamics\_Test.mlx)
@@ -105,7 +108,7 @@ traj.comOmega_body = xOut(:,11:13).';
 % comPos_body omitted -> animateSeed falls back to massParams.com_t ([0;0;0]).
 
 %set the output folder
-outFolder = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\Compiled_Outputs';
+outFolder = fullfile(P.misc, "Compiled_Outputs");
 
 opts = struct();
 opts.outputFolder = outFolder;

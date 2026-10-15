@@ -24,12 +24,13 @@
 % Section-organised, no local functions.
 
 %% 1. Configuration  -- EDIT HERE
-root   = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics";
-outDir = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\Mode Examples";
-addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
-        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
-        fullfile(root,'physics3d'), fullfile(root,'visualization'), ...
-        fullfile(root,'testing','helpers'));
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+root = P.root;
+outDir = fullfile(P.misc, "Mode Examples");
 
 cfg.render        = true;    % false -> self-check only
 cfg.T             = 8;       % s of synthetic motion per example

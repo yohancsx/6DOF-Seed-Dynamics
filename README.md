@@ -17,7 +17,7 @@ justified as possible.
 
 ---
 
-## Current state (September 2026)
+## Current state (October 2026)
 
 There are **two models** sharing one rigid-body core:
 
@@ -26,20 +26,30 @@ There are **two models** sharing one rigid-body core:
 | `planar` | `setupSeedShapeAndMass` / `seed6DOFODE` | **Frozen reference.** Flat seed. Reproduces all seven reference modes, but only with four empirical whole-seed terms (span force, span torque with migrating CoP, `Tx`, `Ty`) carrying tuned constants. Kept byte-identical so every earlier run stays comparable. |
 | `shape3d` | `setupSeedShape3D` / `seed6DOFODE3D` | **Active model.** Spanwise twist and curvature; the empirical whole-seed terms removed; first-principles added mass (Kirchhoff's pair) and tip edge drag on by default; LEV lift available but off. |
 
+Flight modes are labelled by the **six-part classifier** (`classifySeedMode`, definitions in
+[`MODE_DEFINITIONS.md`](testing/classifier/MODE_DEFINITIONS.md)), built from a by-eye
+labelled review set. The paper-metric sign error found along the way is fixed.
+
 What the `shape3d` model gets right and wrong at present (details and numbers in the log,
-phases 5–6):
+phases 5–8):
 
 - **Right:** descent speed on the Hou et al. (2025) plate, 1.04–1.36 × `sqrt(σg/ρ)` against
   a published O(1) prefactor.
-- **Wrong:** attitude. The model cannot hold a fixed attitude about its long axis, and 0/104
-  cells agree with the published phase map. *Both measured before a sign error in the paper
-  metrics was fixed (2026-10-03). That error made every steady revolver read as spiral
-  tumbling, so the comparison has to be re-run (log, phase 7).*
-- **Wrong:** with spanwise flow. Without the planar patches it degenerates by rolling and
-  sliding spanwise, and can fall span-down.
+- **Partly right:** the paper's autorotation region. In the latest grid (flip boundary 36°,
+  `model_test_results/2026-10-05_120022_ca9e83e_3D_baseline`), **15 of 104 cells (14.4%)**
+  agree with the published phase map, and all 15 are in that region. The autorotation
+  anchor is now labelled autorotation, but it tilts −29.6° against the paper's −11.4°.
+- **Wrong:** rotation about the long axis everywhere else.
+  - The paper's spiral-tumbling region comes out as plain flutter, with no full turns.
+  - Its no-rotation falling region comes out as a revolving flutter spiral.
+  - Its chaotic band comes out as flutter or flutter spiral.
+- **Wrong:** our own seed in spanwise flow. Without the planar patches it degenerates by
+  rolling and sliding spanwise, and can fall span-down: **21%** of our-seed grid cells are
+  non-physical, against 0% in the paper window.
 
-The diagnosis is missing low-aspect-ratio (finite-wing) aerodynamics. The plan to supply it
-is in the [roadmap](#roadmap).
+The diagnosis is missing low-aspect-ratio (finite-wing) aerodynamics. The paper mismatches
+point first at the chordwise centre of pressure and the pitch stiffness about the long axis,
+which is the first target of the virtual wind tunnel ([roadmap](#roadmap), step 2).
 
 ---
 
@@ -67,6 +77,7 @@ is in the [roadmap](#roadmap).
 6DOF Seed Dynamics/
 ├── Seed_Dynamics_ODE_Test.m       ← START HERE: a single drop, planar model
 ├── Seed_Dynamics_ODE_Test_3D.m    a single drop, shape3d model (+ twist/curvature, metrics)
+├── seedPaths.m                    puts the code on the path; returns the output folders
 ├── README.md                      what the code is
 ├── RESEARCH_LOG.md                how it got here: phases, results, decisions
 ├── physics/                       planar model + the shared, shape-agnostic core
@@ -160,6 +171,18 @@ Planar keeps both added-mass terms off so it stays byte-identical to every earli
 MATLAB, though the Parallel Computing Toolbox speeds up the grids (`parfor`) and the Aerospace
 Toolbox helps with quaternion conversion.
 
+### Paths and where outputs go
+
+No script hardcodes a machine path. Each one walks up from its own folder to
+[`seedPaths.m`](seedPaths.m), which puts the model code on the path and returns the output
+folders, so the code runs from any clone and any MATLAB current folder:
+
+| folder | what goes there |
+|---|---|
+| `model_test_results/` (`P.results`, in the repo, git-ignored) | Everything a test suite or regression produces: runs regenerated whenever the model changes. |
+| `Misc Outputs/` (`P.misc`, beside the repo) | One-off studies and tooling: classifier review sets, the mode gallery, LEV exploration, the single-drop harnesses, the standalone twist/curvature/CoM demos, the original paper-grid scripts. |
+| `Outputs/` (beside the repo) | Reserved for paper and presentation material. No test or study writes there. |
+
 ### Quick start: a single drop
 
 - **Planar:** open and run **[`Seed_Dynamics_ODE_Test.m`](Seed_Dynamics_ODE_Test.m)**. It
@@ -175,7 +198,7 @@ Toolbox helps with quaternion conversion.
 Scripted directly:
 
 ```matlab
-addpath(genpath('physics'));  addpath('physics3d', 'visualization', 'testing/helpers');
+P = seedPaths();                      % from the repo root: code on the path, P.results etc.
 
 cfg = struct('rhoFluid', 1.225, 'g', 9.81, 'shapeModel', 'shape3d');
 sp  = buildSeedParams(bsp, cfg);      % bsp: seedShape, seedDensity, seedThickness,
@@ -213,9 +236,9 @@ Each script has an editable configuration block at the top.
 
 | File | What it does |
 |---|---|
-| `classifier/buildClassifierReviewSet.m` | Builds a by-eye labelling set: a coarse nut-position grid on our seed under **both** models, with run IDs shuffled so neither model nor position shows. For each run it writes:<br>• a **blind** animation (no mode colours or labels);<br>• a static summary (whole flight, attitude, cumulative rotation, rates);<br>• the raw trajectory.<br>It also writes `classifier_review.xlsx`: eye-label columns first, then the current code's labels, a blank `label_new` column, metrics, and the vocabulary. Output goes to a new timestamped folder under `Outputs/Classifier Review/`, so a labelled sheet is never overwritten. |
+| `classifier/buildClassifierReviewSet.m` | Builds a by-eye labelling set: a coarse nut-position grid on our seed under **both** models, with run IDs shuffled so neither model nor position shows. For each run it writes:<br>• a **blind** animation (no mode colours or labels);<br>• a static summary (whole flight, attitude, cumulative rotation, rates);<br>• the raw trajectory.<br>It also writes `classifier_review.xlsx`: eye-label columns first, then the current code's labels, a blank `label_new` column, metrics, and the vocabulary. Output goes to a new timestamped folder under `Misc Outputs/Classifier Review/` (beside the repo), so a labelled sheet is never overwritten. |
 | `classifier/buildRelabelSheet.m` | Turns a labelled review set into a second-pass sheet with **one dropdown per classifier part**, without re-simulating:<br>• pre-filled from the first-pass labels, with only the parts each label actually states;<br>• `name_from_parts` (the classifier's rules applied to your parts) and a `MISMATCH` check;<br>• the code's answers grouped and collapsed.<br>Writes `classifier_review_v2.xlsx` next to the first pass and never modifies it. Needs Excel (driven via `actxserver`). |
-| `classifier/makeModeExamples.m` | **A visual dictionary of the modes.** One idealized animation + still per mode name, plus an `INDEX.md` explaining each, written to `Outputs/Mode Examples/`. The examples are **synthetic** (prescribed textbook motion from `helpers/synthSeedMotion.m`, slowed to watchable rates), so every label has one, including modes the model never produces. Each example must classify as its own label before it is rendered. |
+| `classifier/makeModeExamples.m` | **A visual dictionary of the modes.** One idealized animation + still per mode name, plus an `INDEX.md` explaining each, written to `Misc Outputs/Mode Examples/` (beside the repo). The examples are **synthetic** (prescribed textbook motion from `helpers/synthSeedMotion.m`, slowed to watchable rates), so every label has one, including modes the model never produces. Each example must classify as its own label before it is rendered. |
 | `classifier/MODE_DEFINITIONS.md` | **The mode definitions**, in words and math. The six parts of the new classifier and every boundary between them, the 17 mode names in order of precedence (also the eye-labelling vocabulary), which modes are non-physical, and the two older classifiers transcribed for comparison. Kept in step with the three files below; add new modes here. |
 | `helpers/classifySeedMode.m`, `defaultSeedModeThresholds.m`, `computeSeedModeMetrics.m` | **The six-part classifier.** It judges six things independently and builds the name from them: flip about the span (from attitude), revolution (from the span heading), span attitude, path, regularity, and physicality. Every boundary lives in the thresholds file, dated where it was decided on the review set. Synthetic regression: cases N1–N9 in `shape3d/testPaperMetrics.m`. |
 
@@ -223,11 +246,11 @@ Each script has an editable configuration block at the top.
 
 | Script | What it does |
 |---|---|
-| `planar/runSeedTestSuite.m` | Parameter sweeps (nut mass/position, initial tilt/spin, asymmetry, strip convergence); a figure per case and an overlay per group. |
+| `planar/runSeedTestSuite.m` | Parameter sweeps (nut mass/position, initial tilt/spin, asymmetry, strip convergence); a figure per case and an overlay per group. Writes to `model_test_results/planar_test_suite/`. |
 | `planar/runSeedModeSuite.m` | The seven named modes at their working inputs, each classified. |
-| `planar/runSeedModeGrid.m` | Chord × span nut-position phase map. **Planar only**: it calls `seed6DOFODE` directly (see roadmap). |
+| `planar/runSeedModeGrid.m` | Chord × span nut-position phase map. **Planar only**: it calls `seed6DOFODE` directly (see roadmap). Writes to `model_test_results/planar_mode_grid/`. |
 | `planar/pickModeGridRuns.m` | Click cells on a saved mode grid and animate them.<br>• **By default it opens the newest `model_test_results/*_3D_*/mode_grid_3D.mat`.** Set `resultsFile` to open any other grid.<br>• **Videos are written next to the grid**, in `mode_grid_picks/`, with a `picks_log.csv`.<br>• **Six-part grids get blind videos** titled with the cell's label and parts.<br>• **Model-agnostic:** it re-integrates through `seedRHS`, so planar grids work too. |
-| `planar/runModeAblation.m` | The seven modes under several span-force/`Tx` configurations. |
+| `planar/runModeAblation.m` | The seven modes under several span-force/`Tx` configurations. Writes to `model_test_results/planar_mode_ablation/`. |
 | `planar/runSpanForceComparison.m` | Four hand-tuned cases isolating the span force, with a torque-budget diagnostic. |
 | `planar/runComMovementTest.m` | Time-varying CoM (the nut slides within the body); a mode animation per scenario. |
 
@@ -424,12 +447,12 @@ never tuning.
     thresholds on half, check on the other half, then freeze it as a regression test on the
     *saved* trajectories.
   - [x] Tooling: `classifier/buildClassifierReviewSet.m` and `classifier/MODE_DEFINITIONS.md`.
-  - [ ] Label the set (first pass done 2026-10-03).
-  - [ ] Paper-metric sign error fixed: steady revolvers no longer read as spiral tumbling.
-  - [ ] Six-part classifier written (`classifySeedMode`), synthetic regression passing.
-  - [x] Visual dictionary of the modes (`classifier/makeModeExamples.m` → `Outputs/Mode Examples`).
-  - [ ] Re-run the paper comparison: every paper-classifier result before 2026-10-03 has the
-        sign error.
+  - [x] Label the set (first pass done 2026-10-03; a second pass is deferred, see below).
+  - [x] Paper-metric sign error fixed: steady revolvers no longer read as spiral tumbling.
+  - [x] Six-part classifier written (`classifySeedMode`), synthetic regression passing.
+  - [x] Visual dictionary of the modes (`classifier/makeModeExamples.m` → `Misc Outputs/Mode Examples`).
+  - [x] Re-run the paper comparison (2026-10-05, flip boundary 36°): 14.4% agreement. Every
+        paper-classifier result before 2026-10-03 has the sign error.
 - [ ] **2. Virtual wind tunnel.** Evaluate the aero model on a plate held fixed at any
   orientation, with imposed rotation rates and no integration: lift, drag, chordwise and
   spanwise CoP, rolling moment vs sideslip, the end-on moment, roll damping.
@@ -490,7 +513,6 @@ never tuning.
 - [ ] Housekeeping:
   - Stale code comments: `seed6DOFODE3D.m`'s header and `runPaperAnchorCases.m`'s header still
     describe the added-mass rate as off.
-  - MATLAB autosave files (`*.asv`) are tracked; add them to `.gitignore`.
 
 ### Completed
 

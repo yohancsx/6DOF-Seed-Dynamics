@@ -20,10 +20,12 @@
 % A "flat" curvature profile (@(s) 0*s) is used for A and B: curvature is
 % PRESENT (so the curved-mass path runs) but zero (so the geometry is flat).
 
-root = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
-addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
-        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
-        fullfile(root,'physics3d'), fullfile(root,'testing','helpers'));
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+root = P.root;
 
 tolRel = 1e-10;   tolAbs = 1e-12;
 

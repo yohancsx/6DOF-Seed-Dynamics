@@ -4,7 +4,7 @@ function th = defaultSeedModeThresholds()
 % These ARE the mode definitions -- testing/classifier/MODE_DEFINITIONS.md
 % documents them in words and must be kept in step with this file. Each value
 % says where it came from: a decision taken on the by-eye review set
-% (Outputs/Classifier Review/2026-09-27_165346_3727986, decided 2026-10-03), or a
+% (Misc Outputs/Classifier Review/2026-09-27_165346_3727986, decided 2026-10-03), or a
 % judgement still to be checked against labels.
 %
 % Units: rad/s, deg, turns, spans, dimensionless ratios.

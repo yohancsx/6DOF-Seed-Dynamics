@@ -19,12 +19,13 @@
 %
 % Videos go OUTSIDE the repo (generated binaries stay out of git).
 
-root = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
-addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
-        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
-        fullfile(root,'physics3d'), fullfile(root,'visualization'), ...
-        fullfile(root,'testing','helpers'));
-outDir = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\Paper Case Animations';
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+root = P.root;
+outDir = fullfile(P.misc, "Paper Case Animations");
 if ~exist(outDir,'dir'); mkdir(outDir); end
 
 [cfg, bsp, toNutPos, info] = paperSeedConfig();

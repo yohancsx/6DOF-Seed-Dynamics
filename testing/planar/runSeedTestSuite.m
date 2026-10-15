@@ -19,14 +19,14 @@
 % saved as a MATLAB live script (.mlx) unchanged.
 
 %% 1. Configuration  -- EDIT HERE
-% --- Paths (edit for your machine) ----------------------------------------
-% Where all run outputs are written:
-outPath       = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\test_suite";
-% Folder holding this suite's helper functions (seedTestCases, runOneSeedCase, ...):
-helpersFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics\testing\helpers";
-addpath(helpersFolder);
-% NOTE: the model code (physics/ and visualization/) is assumed to be on the
-% MATLAB path already (add it once per session if not).
+% --- Paths -----------------------------------------------------------------
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+% Where all run outputs are written (git-ignored, beside the 3D suite's runs):
+outPath       = fullfile(P.results, "planar_test_suite");
 
 % --- Output location ------------------------------------------------------
 cfg.outputRoot = outPath;

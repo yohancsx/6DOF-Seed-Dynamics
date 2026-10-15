@@ -20,11 +20,12 @@
 % and testing/helpers/ on the path. Uses parfor for the grid if available.
 
 %% 0. Paths + snapshot folder
-repoRoot = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
-addpath(fullfile(repoRoot,'physics'), fullfile(repoRoot,'physics','helpers'), ...
-        fullfile(repoRoot,'physics','aero'), fullfile(repoRoot,'physics','mass'), ...
-        fullfile(repoRoot,'physics3d'), fullfile(repoRoot,'visualization'), ...
-        fullfile(repoRoot,'testing','helpers'));
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+repoRoot = P.root;
 
 githash = gitField(repoRoot, 'rev-parse --short HEAD');
 gitdirty = ~isempty(strtrim(gitField(repoRoot, 'status --porcelain')));

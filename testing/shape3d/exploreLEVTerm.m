@@ -48,12 +48,14 @@
 % L3b/L3c). Figures 2-4 below are the same for either reading -- G(Ro) is one
 % curve; only the meaning of Ro changes. Figure 5 shows what that means in Omega.
 
-root = 'C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics';
-addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
-        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
-        fullfile(root,'physics3d'), fullfile(root,'testing','helpers'));
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+root = P.root;
 
-outDir = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\LEV Exploration";
+outDir = fullfile(P.misc, "LEV Exploration");
 if ~exist(outDir,'dir'); mkdir(outDir); end
 
 % --- The test seed, built the normal way so the constants are the model's own --

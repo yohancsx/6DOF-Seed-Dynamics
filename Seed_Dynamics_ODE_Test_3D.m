@@ -21,11 +21,12 @@
 % Section-organised and free of local functions, so it saves as an .mlx cleanly.
 
 %% 1. Setup seed shape, mass, environment and physics switches  -- EDIT HERE
-root = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics";
-addpath(fullfile(root,'physics'), fullfile(root,'physics','helpers'), ...
-        fullfile(root,'physics','aero'), fullfile(root,'physics','mass'), ...
-        fullfile(root,'physics3d'), fullfile(root,'visualization'), ...
-        fullfile(root,'testing','helpers'));
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
+root = P.root;
 
 % --- Geometry & material --------------------------------------------------
 spanLength   = 0.050;   % spanwise length, body z (m)
@@ -150,7 +151,7 @@ if isfield(labInfo, 'reason'); fprintf('  reason: %s\n', labInfo.reason); end
 
 %% 5. Animate and save
 % Set outFolder OUTSIDE the repo: generated videos stay out of git.
-outFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\Outputs\Compiled_Outputs";
+outFolder = fullfile(P.misc, "Compiled_Outputs");
 if ~exist(outFolder, 'dir'); mkdir(outFolder); end
 runName = 'quick_Spin_3D';
 

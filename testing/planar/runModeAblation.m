@@ -8,9 +8,11 @@
 % mode: descent speed, vertical-axis spin, spanwise (tumble) spin, cone angle,
 % glide ratio, helix radius.
 
-helpersFolder = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics\testing\helpers";
-addpath(helpersFolder);
-% NOTE: physics/ and visualization/ assumed on the MATLAB path.
+% Paths: find the repo root (the folder holding seedPaths.m) above this file;
+% seedPaths puts the model code on the path. See seedPaths.m.
+here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+addpath(here);  P = seedPaths(here);
 
 % --- Base config (geometry, environment, analysis) ------------------------
 cfg.spanLength  = 0.050;   cfg.chordLength = 0.015;   cfg.thickness = 0.002;
@@ -55,7 +57,8 @@ configs = struct( ...
   'Ct', {0.7,  0.7,   0.7,   0.7,   0.7  });
 
 % --- Output file ----------------------------------------------------------
-outTxt = fullfile(char(fileparts(char(helpersFolder))), 'Mode_Ablation_Results.txt');
+outTxt = fullfile(P.results, 'planar_mode_ablation', 'Mode_Ablation_Results.txt');
+if ~exist(fileparts(outTxt), 'dir'); mkdir(fileparts(outTxt)); end
 fid = fopen(outTxt, 'w');
 fprintf(fid, 'Mode ablation results  %s\n', datestr(now));
 fprintf(fid, ['Base seed: nut 75e-6 kg, density 65 kg/m^3, span 0.050 m, chord 0.015 m; ' ...

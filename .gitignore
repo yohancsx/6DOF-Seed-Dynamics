@@ -2,3 +2,6 @@
 # e.g. runComMovementTest.m -> animateModeTrajectory.m, animateSeed.m)
 *.mp4
 *.avi
+
+# MATLAB autosave files
+*.asv
