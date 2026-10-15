@@ -1,17 +1,23 @@
 function seedParamsFull = setupSeedShape3D(seedParamsIn)
 % SETUPSEEDSHAPE3D  Build a NON-PLANAR (3D-shape) seed's geometry + mass.
 %
-% The 'shape3d' analogue of setupSeedShapeAndMass. It produces the same strip +
+% The builder for the 'shape3d' seed model. It produces the strip +
 % mass-property fields the ODE consumes, PLUS the per-strip 3D contract fields
 % (ygc_body and the local chord/normal/span frames) that let seed6DOFODE3D place
 % and orient each strip out of the body x-z plane (twist / camber / dihedral).
 %
 % STATUS: supports flat plates, TWIST (spanwise geometric pitch about the span
 % axis), and spanwise CURVATURE (dihedral bending about the chord axis, strips
-% leaving y=0). It wraps setupSeedShapeAndMass for the planar strips, then sets
-% each strip's out-of-plane position + local frame from the requested twist and
-% curvature and retags 'shape3d'. With neither, the frames are identity and the
-% seed is a strict superset of the planar seed (the flat-equivalence regression).
+% leaving y=0). Four steps, one section each below:
+%   1. STRIPS  slicePlanform cuts the flat planform into strips and computes the
+%              flat-plate mass properties.
+%   2. FRAMES  each strip's out-of-plane position + local frame, from the
+%              requested twist and curvature.
+%   3. MASS    curved seeds recompute CoM/inertia in 3D; flat and twisted seeds
+%              keep the flat-plate values (exact for them).
+%   4. PHYSICS the shape3d switch defaults, the LEV constants, the model tag.
+% With neither twist nor curvature the frames are identity and the seed reduces
+% exactly to a flat plate (the flat-equivalence regressions).
 %
 % MASS / INERTIA: twist keeps every strip centre at y=0 and only re-orients a
 % thin plate about its own mid-chord, so the flat-plate mass properties stay
@@ -44,9 +50,15 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
 
     bsp = seedParamsIn.baseSeedParams;
 
-    % --- Planar base: identical strips + mass to the flat-plate builder -----
-    seedParamsFull = setupSeedShapeAndMass(seedParamsIn);
+    % =====================================================================
+    % 1. STRIPS: the flat planform, sliced, with its flat-plate mass
+    % =====================================================================
+    seedParamsFull = seedParamsIn;                 % carry all inputs through
+    [seedParamsFull.strips, seedParamsFull.massParams] = slicePlanform(bsp);
 
+    % =====================================================================
+    % 2. FRAMES: twist and curvature
+    % =====================================================================
     M    = numel(seedParamsFull.strips.chord);
     sArc = seedParamsFull.strips.zgc_body;       % flat span coordinate = ARC LENGTH
                                                   % along the (bent) profile (1xM)
@@ -88,25 +100,23 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     seedParamsFull.strips.twist     = theta;     % record profiles (rad)
     seedParamsFull.strips.dihedral  = phi;
 
-    % --- MASS / INERTIA ----------------------------------------------------
+    % =====================================================================
+    % 3. MASS / INERTIA
+    % =====================================================================
     % Twist keeps every strip centre at y = 0 and only re-orients a thin plate
     % about its own mid-chord, so the flat-plate mass properties from
-    % setupSeedShapeAndMass remain exact -- leave them alone (this is also what
-    % keeps flat/twist bit-identical to the planar model). CURVATURE genuinely
-    % moves mass off the x-z plane, so recompute the CoM and inertia from the 3D
-    % strip positions + orientations.
+    % slicePlanform remain exact -- leave them alone (this is also what keeps
+    % flat/twist bit-identical to the flat plate). CURVATURE genuinely moves mass
+    % off the x-z plane, so recompute the CoM and inertia from the 3D strip
+    % positions + orientations.
     if hasCurvature
         seedParamsFull.massParams = curvedMassProperties(seedParamsFull, bsp);
     end
-    % (A curved seed used to switch the planar span-force hack off here, because
-    % its tilted strips produce that force from geometry. The span force is now
-    % retired from this model entirely -- see below -- so the special case is gone.
-    % Its replacement, edge drag, is tip form drag: a different mechanism from the
-    % strips' normal forces, so it does not double-count on a curved seed.)
 
-    % --- Wing thickness: needed for the edge-drag frontal area ---------------
-    % setupSeedShapeAndMass reads it but does not keep it; record it here rather
-    % than change the frozen planar builder.
+    % =====================================================================
+    % 4. PHYSICS: switch defaults, LEV constants, model tag
+    % =====================================================================
+    % Wing thickness: needed for the edge-drag frontal area.
     seedParamsFull.seedThickness = bsp.seedThickness;
 
     % --- Physics switches for the shape3d model -------------------------------
@@ -133,8 +143,12 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     % eq. (6.3). Taking one without the other was taking half of Kirchhoff. They
     % also measurably improve the comparison with Hou et al. (2025): descent speed
     % moves from 1.2-2.4 to 1.0-1.4 times sqrt(sigma g/rho), where the published
-    % prefactor is O(1). The FROZEN PLANAR builder keeps both OFF, so the planar
-    % reference stays byte-identical to every earlier run.
+    % prefactor is O(1). (The archived planar model kept both OFF.)
+    %   enableAddedMass3D   OFF -- the full per-strip added-mass tensor built from
+    %                              each strip's own normal (getAddedMass). OFF uses
+    %                              the flat-plate form, a documented approximation
+    %                              for gentle curvature; meaningful only for a
+    %                              non-planar seed.
     %   enableLEV           OFF -- leading-edge-vortex vortex lift (computeLEVForce).
     %                              Empirical, and not yet validated for this seed.
     %   levApplicationPoint 'colocated' -- where that vortex lift acts: at the APW
@@ -145,6 +159,7 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     seedParamsFull.enableEdgeDrag        = true;
     seedParamsFull.enableAddedMassRate   = true;
     seedParamsFull.enableAddedMassMoment = true;
+    seedParamsFull.enableAddedMass3D     = false;
     seedParamsFull.enableLEV             = false;
     seedParamsFull.levApplicationPoint   = 'colocated';
 
@@ -184,29 +199,9 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     lev.rossbyDefinition = 'kinematic';
     seedParamsFull.lev = lev;
 
-    % --- Drop the switches the 3D RHS no longer honours --------------------
-    % setupSeedShapeAndMass stamps the full planar switch set. seed6DOFODE3D no
-    % longer reads these -- the terms they gated were removed:
-    %   Sep-2026 audit : the span torque with its migrating CoP and reduced-
-    %                    frequency attenuation; the Tx / Ty spin-damping torques.
-    %   phase 4        : the span force itself (measured inert to <= 7e-4 relative
-    %                    on every metric) and the velocity-sampling switch that
-    %                    only it used. Edge drag replaces it.
-    % Leaving them on the struct would advertise knobs that silently do nothing, so
-    % strip them: a shape3d seedParams carrying one is a stale config, and now looks
-    % like one. The planar model still has all of them.
-    deadSwitches = {'enableSpanTorque', 'enableSpanCOPMigration', ...
-                    'enableSpanTorqueAttenuation', 'enableTxDamping', ...
-                    'enableNormalSpinDamping', 'enableSpanForce', ...
-                    'enableSpanGeomVelocity'};
-    for iDead = 1:numel(deadSwitches)
-        if isfield(seedParamsFull, deadSwitches{iDead})
-            seedParamsFull = rmfield(seedParamsFull, deadSwitches{iDead});
-        end
-    end
-
-    % --- Retag the model (setupSeedShapeAndMass stamped it 'planar') --------
-    seedParamsFull.model = 'shape3d';
+    % --- Model tag, and the base params (renderers read the planform from it)
+    seedParamsFull.model          = 'shape3d';
+    seedParamsFull.baseSeedParams = bsp;
 end
 
 
