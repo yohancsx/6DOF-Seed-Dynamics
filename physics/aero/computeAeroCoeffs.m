@@ -21,8 +21,8 @@ function coeffs = computeAeroCoeffs(alpha, aero)
 %           strip velocity (not the negated wind) so the branch logic lines up.
 %   aero  : (optional) struct of empirical constants. If omitted, the exact
 %           minimal_imp values are used (see defaultAeroParams below).
-%           Fields: CL1, CL2, CD0, CD1, CD2, CR, CCP0, CCP1, CCP2, as, d, C_fy,
-%           C_span.
+%           Fields: CL1, CL2, CD0, CD1, CD2, CR, CCP0, CCP1, CCP2, as, d,
+%           C_d_edge.
 %
 % OUTPUT (struct, each field matches the size of alpha unless noted)
 %   coeffs.CT        : lift / normal-force coefficient (the 2D "CT_alpha").
@@ -37,37 +37,19 @@ function coeffs = computeAeroCoeffs(alpha, aero)
 %   coeffs.CD_rot    : rotational spin-damping coefficient (= CD2). The
 %                      coefficient on the Tr ~ omega*|omega| damping torque.
 %                      CONSTANT (alpha-independent).
-%   coeffs.CD0       : zero-incidence/parasitic drag coefficient. Used
-%                      directly as the spin-damping coefficient about the
-%                      plate-normal (body y) axis (normalSpinDamping.m).
+%   coeffs.CD0       : zero-incidence/parasitic drag coefficient.
 %                      CONSTANT (alpha-independent).
-%   coeffs.C_fy      : tuning factor for the plate-normal spin-damping torque
-%                      (normalSpinDamping.m); no minimal_imp analogue.
-%                      CONSTANT (alpha-independent).
-%   coeffs.C_span    : tuning factor for the whole-seed spanwise-flow force
-%                      (computeSpanForce.m); no minimal_imp analogue.
-%                      CONSTANT (alpha-independent).
-%   coeffs.C_span_torque : tuning factor for the whole-seed spanwise-flow
-%                      TORQUE only, applied independently of C_span so the span
-%                      force and its moment can be scaled separately.
-%                      CONSTANT (alpha-independent).
-%   coeffs.k0_spanTorque : reduced-frequency roll-off for the span-torque
-%                      quasi-steady attenuation (seed6DOFODE section 3b). The
-%                      span torque is scaled by 1/(1+(k/k0)^2) with the reduced
-%                      frequency k = |omega_y|*S/(2*v_ip); smaller k0 attenuates
-%                      sooner. CONSTANT (alpha-independent).
-%   coeffs.C_Tx      : tuning factor for the Tx chordwise-axis (roll) spin
-%                      damping (spanSpinDamping.m), applied when that term is
-%                      enabled. CONSTANT (alpha-independent).
-%   coeffs.C_d_edge  : bluff-tip drag coefficient for the shape3d edge crossflow
-%                      drag (physics3d/computeEdgeDrag.m), referenced to the
-%                      frontal area thickness*chord. CONSTANT. Planar never reads it.
+%   coeffs.C_d_edge  : bluff-tip drag coefficient for the edge crossflow drag
+%                      (physics3d/computeEdgeDrag.m), referenced to the frontal
+%                      area thickness*chord. CONSTANT.
+% (The archived planar model's tuning constants -- C_fy, C_span, C_span_torque,
+%  k0_spanTorque, C_Tx -- now live in archive/planar/aero/planarAeroConstants.m.)
 
 % -------------------------------------------------------------------------
 % 0. PARAMETERS
 % -------------------------------------------------------------------------
 % A PARTIAL struct is allowed: any field not supplied falls back to the default,
-% so a caller can override just one constant, e.g. struct('C_span', 0.25).
+% so a caller can override just one constant, e.g. struct('CL1', 3.5).
 defaults = defaultAeroParams();
 if nargin < 2 || isempty(aero)
     aero = defaults;
@@ -85,11 +67,6 @@ CD0 = aero.CD0;  CD1 = aero.CD1;  CD2 = aero.CD2;      % drag constants
 CR  = aero.CR;                                         % rotational-lift constant
 CCP0 = aero.CCP0; CCP1 = aero.CCP1; CCP2 = aero.CCP2;  % CoP constants
 as = aero.as;    d = aero.d;                           % stall angle, blend width
-C_fy = aero.C_fy;                                      % y-axis spin-damping tuning factor
-C_span = aero.C_span;                                  % spanwise-flow force tuning factor
-C_span_torque = aero.C_span_torque;                    % spanwise-flow TORQUE tuning factor
-k0_spanTorque = aero.k0_spanTorque;                    % span-torque attenuation roll-off
-C_Tx = aero.C_Tx;                                      % Tx (roll) spin-damping tuning factor
 C_d_edge = aero.C_d_edge;                              % edge (tip) crossflow drag coefficient
 
 % -------------------------------------------------------------------------
@@ -157,11 +134,6 @@ coeffs.l_cp_frac = lcp;    % CoP fraction of chord         (alpha-dependent)
 coeffs.CR        = CR;     % rotational-lift coefficient   (constant)
 coeffs.CD_rot    = CD2;    % rotational damping coefficient (constant, = CD2)
 coeffs.CD0       = CD0;    % zero-incidence drag coefficient (constant)
-coeffs.C_fy      = C_fy;   % y-axis spin-damping tuning factor (constant)
-coeffs.C_span    = C_span; % spanwise-flow force tuning factor (constant)
-coeffs.C_span_torque = C_span_torque;  % spanwise-flow torque tuning factor (constant)
-coeffs.k0_spanTorque = k0_spanTorque;  % span-torque attenuation roll-off (constant)
-coeffs.C_Tx      = C_Tx;   % Tx roll spin-damping tuning factor (constant)
 coeffs.C_d_edge  = C_d_edge; % edge crossflow drag coefficient (constant; shape3d only)
 
 end   % computeAeroCoeffs
@@ -183,19 +155,9 @@ function aero = defaultAeroParams()
     aero.CCP2 = 0.2;          % CoP: high-angle offset (separated)
     aero.as   = 14*pi/180;    % stall angle (~14 deg)
     aero.d    =  6*pi/180;    % blend width (~6 deg)
-    aero.C_fy = 1;          % y-axis (plate-normal) spin-damping tuning factor
-                               % (no minimal_imp analogue; see
-                               % normalSpinDamping.m) (was 1)
-    aero.C_span = 0.2;        % spanwise-flow force tuning factor
-                               % (no minimal_imp analogue; see computeSpanForce.m)
-    aero.C_span_torque = 0.7; % spanwise-flow TORQUE tuning factor, independent of
-                               % C_span so force and moment can be scaled separately
-    aero.k0_spanTorque = 0.2; % reduced-frequency roll-off for span-torque
-                               % attenuation; ~preserves the torque at low spin
-                               % (tumbling) and suppresses it at high spin (autorotation)
-    aero.C_Tx = 1.0;          % Tx (chordwise-axis / roll) spin-damping tuning factor
-    aero.C_d_edge = 1.2;      % EDGE crossflow drag coefficient (shape3d computeEdgeDrag).
+    % (The archived planar model's tuning constants C_fy, C_span, C_span_torque,
+    %  k0_spanTorque and C_Tx moved to archive/planar/aero/planarAeroConstants.m.)
+    aero.C_d_edge = 1.2;      % EDGE crossflow drag coefficient (computeEdgeDrag).
                                % Bluff rectangular tip, referenced to thickness*chord.
-                               % Not a fit: a textbook bluff-body value. Planar never
-                               % reads it, so adding it leaves the frozen model unchanged.
+                               % Not a fit: a textbook bluff-body value.
 end

@@ -1,4 +1,9 @@
-%% Regression: the paper-comparison metrics and classifier, on SYNTHETIC motion
+function res = testPaperMetrics()
+% TESTPAPERMETRICS  Regression: the paper-comparison metrics and classifier, on SYNTHETIC motion
+%
+% Returns res, a struct array (.name, .pass, .detail), one entry per check, and
+% prints as before. Run it on its own, or through testing/runRegressionTests.
+%
 % computePaperMetrics and classifyPaperMode decide every conclusion in the
 % phase-5 comparison, so they are tested against trajectories whose answer is
 % known by construction rather than against simulation output (which would only
@@ -193,6 +198,11 @@ if allOk
 else
     fprintf(2, '\nFAIL: see the checks above.\n');
 end
+
+% --- result struct (for runRegressionTests / stage 0 of the 3D suite) ------
+res = struct('name', results(:,1), 'pass', results(:,2), 'detail', results(:,3)).';
+for k = 1:numel(res); res(k).pass = logical(res(k).pass); end
+end   % main test function
 
 
 % The synthetic motions come from testing/helpers/synthSeedMotion.m (promoted

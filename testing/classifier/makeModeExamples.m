@@ -13,12 +13,14 @@
 % SELF-CHECK: before anything is rendered, every example is run through the real
 % classifier (computeSeedModeMetrics + classifySeedMode). An example that does not
 % classify as its own label is reported and NOT rendered, so the gallery can never
-% show a mode the code would call something else. Set cfg.render = false to run
-% only the check.
+% show a mode the code would call something else. The same check is made on the
+% TIME-RESOLVED label (classifySeedModeTimeline, which colours the animations):
+% over the second half of each example, the most common window label must be the
+% example's own. Set cfg.render = false to run only the checks.
 %
-% Videos use animateModeTrajectory in BLIND mode (the older classifier's mode
-% colours would contradict the new names) with the ground-track panel; the title
-% carries the mode name, its one-line definition, and NON-PHYSICAL where it applies.
+% Videos use animateModeTrajectory, coloured by that timeline, with the
+% ground-track panel; the title carries the mode name, its one-line definition,
+% and NON-PHYSICAL where it applies.
 %
 % Output is a regenerable folder OUTSIDE the repo; reruns overwrite it.
 % Section-organised, no local functions.
@@ -94,8 +96,10 @@ th = defaultSeedModeThresholds();
 so = struct('windowStartFrac',0.5, 'convergeTol',0.20, 'spanLength',S, ...
             'flipHysteresisTurns', th.flipHysteresisTurns);
 T = cell(nE,1);  X = cell(nE,1);  got = strings(nE,1);  partsStr = strings(nE,1);
-ok = false(nE,1);  physGot = false(nE,1);
-fprintf('\n%-3s %-18s %-18s %-40s %s\n', '#', 'intended', 'classified as', 'parts', 'ok');
+ok = false(nE,1);  physGot = false(nE,1);  tlGot = strings(nE,1);  tlOk = false(nE,1);
+pal = seedModePalette();
+fprintf('\n%-3s %-18s %-18s %-40s %-5s %s\n', '#', 'intended', 'classified as', 'parts', 'ok', ...
+        'timeline (2nd half)');
 for i = 1:nE
     [T{i}, X{i}] = synthSeedMotion(E{i,4});
     sm = computeSeedModeMetrics(T{i}, X{i}, so);
@@ -104,10 +108,15 @@ for i = 1:nE
                           p.path, p.regularity);
     physGot(i) = p.physical;
     ok(i) = strcmp(got(i), E{i,1}) && (p.physical == E{i,3});
-    fprintf('%-3d %-18s %-18s %-40s %s\n', i, E{i,1}, got(i), partsStr(i), ...
-            string(ok(i)));
+    tl = classifySeedModeTimeline(T{i}, X{i}, struct('spanLength', S, 'thresholds', th));
+    late = T{i} >= T{i}(end)/2;
+    tlGot(i) = string(pal.names{mode(tl.idx(late))});
+    tlOk(i)  = tlGot(i) == E{i,1};
+    fprintf('%-3d %-18s %-18s %-40s %-5s %s %s\n', i, E{i,1}, got(i), partsStr(i), ...
+            string(ok(i)), tlGot(i), string(tlOk(i)));
 end
-fprintf('%d of %d examples classify as their own label\n', nnz(ok), nE);
+fprintf('%d of %d examples classify as their own label; %d of %d on the timeline\n', ...
+        nnz(ok), nE, nnz(tlOk), nE);
 if ~all(ok)
     fprintf(2, 'NOT rendered (fix these examples or the classifier first): %s\n', ...
             strjoin(string(E(~ok,1)).', ', '));
@@ -131,7 +140,8 @@ for i = find(ok).'
     animateModeTrajectory(t(sel), x(sel,:), struct( ...
         'videoFile', char(fullfile(outDir, [stem '.mp4'])), 'fps', cfg.animFps, ...
         'playbackSpeed', cfg.playbackSpeed, 'title', ttl, 'seedParams', sp, ...
-        'showSeedVels', false, 'blind', true, 'topPanel', 'groundTrack'));
+        'showSeedVels', false, 'topPanel', 'groundTrack', ...
+        'modeOpts', struct('spanLength', S)));
     exportgraphics(gcf, fullfile(outDir, [stem '.png']), 'Resolution', 110);
     close(gcf);
     files(i) = stem;

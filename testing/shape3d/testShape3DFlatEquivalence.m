@@ -1,7 +1,12 @@
-%% Flat-equivalence regression for the 3D-shape model
+function res = testShape3DFlatEquivalence()
+% TESTSHAPE3DFLATEQUIVALENCE  Flat-equivalence regression for the 3D-shape model
+%
+% Returns res, a struct array (.name, .pass, .detail), one entry per check, and
+% prints as before. Run it on its own, or through testing/runRegressionTests.
+%
 % Locks the invariant that the non-planar model (setupSeedShape3D + seed6DOFODE3D)
-% reduces EXACTLY to the planar model (setupSeedShapeAndMass + seed6DOFODE) for a
-% FLAT seed. Run this after any change to the 3D physics: if it still passes, the
+% reduces EXACTLY to the planar model (setupSeedShapeAndMass + seed6DOFODE, both
+% archived in archive/planar/physics) for a FLAT seed. Run this after any change to the 3D physics: if it still passes, the
 % change did not disturb flat-plate dynamics.
 %
 % SCOPE NOTE. The two models are no longer identical out of the box, by design.
@@ -31,6 +36,10 @@
 here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
 while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
 addpath(here);  P = seedPaths(here);
+% The planar model is archived; this test compares against it, so it (and only
+% it) puts the archived planar builder and RHS back on the path.
+addpath(fullfile(P.root, 'archive', 'planar', 'physics'), ...
+        fullfile(P.root, 'archive', 'planar', 'aero'));
 root = P.root;
 
 tol = 1e-12;
@@ -65,10 +74,11 @@ cfg3full = cfg;  cfg3full.shapeModel = 'shape3d';
 
 %% 1. Build both, compare geometry/mass, validate contract
 bsp = baseBsp; bsp.tSamples=0; bsp.nutPos_t=[0.4*cfg.chordLength;0;0.3*cfg.spanLength]; bsp.nutMass_t=cfg.nutMass;
-spP = buildSeedParams(bsp, cfgPcore);      % planar, core-only config
+spP = buildPlanarSeedParams(bsp, cfgPcore);   % planar (archived), core-only config
 sp3 = buildSeedParams(bsp, cfg3core);      % shape3d (flat), core-only config
 
-iP = validateSeedParams(spP);   i3 = validateSeedParams(sp3);
+i3 = validateSeedParams(sp3);              % the active contract (shape3d only)
+iP = struct('ok', strcmp(spP.model, 'planar'), 'model', spP.model);
 fprintf('contract: planar model=%s, shape3d model=%s\n', iP.model, i3.model);
 
 geomOK = isequal(spP.strips.chord, sp3.strips.chord) && isequal(spP.strips.dz, sp3.strips.dz) && ...
@@ -103,7 +113,7 @@ fprintf('  seed6DOFODE3D(planar)  vs seed6DOFODE(planar) : %.3e\n', maxB);
 tS=0:0.02:2; bspM=bsp; bspM.tSamples=tS;
 bspM.nutPos_t=[linspace(0,cfg.chordLength,numel(tS)); zeros(1,numel(tS)); linspace(0,cfg.spanLength,numel(tS))];
 bspM.nutMass_t=cfg.nutMass*ones(size(tS));
-spPm=buildSeedParams(bspM,cfgPcore); sp3m=buildSeedParams(bspM,cfg3core);
+spPm=buildPlanarSeedParams(bspM,cfgPcore); sp3m=buildSeedParams(bspM,cfg3core);
 maxC=0;
 for k=1:200
     x=[(rand(3,1)-0.5)*2; randn(4,1); (rand(3,1)-0.5)*6; (rand(3,1)-0.5)*100]; x(4:7)=x(4:7)/norm(x(4:7)); t=rand*2;
@@ -115,7 +125,7 @@ fprintf('CORE match (moving nut, 200 states): %.3e\n', maxC);
 % At full defaults the planar model applies Tx, Ty and the span torque; the 3D
 % model applies none of them. The RHS difference is therefore the size of the
 % terms that were cut -- it MUST be non-zero, or a cut has silently reverted.
-spPf = buildSeedParams(bsp, cfgPfull);  sp3f = buildSeedParams(bsp, cfg3full);
+spPf = buildPlanarSeedParams(bsp, cfgPfull);  sp3f = buildSeedParams(bsp, cfg3full);
 maxD = 0;
 for k=1:400
     x=[(rand(3,1)-0.5)*2; randn(4,1); (rand(3,1)-0.5)*6; (rand(3,1)-0.5)*100]; x(4:7)=x(4:7)/norm(x(4:7));
@@ -133,3 +143,16 @@ if pass
 else
     fprintf(2,'\nFAIL: flat-equivalence broken (see values above).\n');
 end
+
+% --- result struct (for runRegressionTests / stage 0 of the 3D suite) ------
+res = struct('name', {'1 flat shape3d seed == planar geometry/mass, flat frames, contract', ...
+                      '1b shape3d struct free of the cut switches', ...
+                      '2 CORE RHS: shape3d flat vs planar (fixed nut)', ...
+                      '3 CORE RHS: planar seed through the 3D RHS', ...
+                      '4 CORE RHS: moving nut', ...
+                      '5 full defaults still differ (the cuts are in place)'}, ...
+             'pass', {geomOK && framesFlat && iP.ok && i3.ok, stripped, maxA < tol, ...
+                      maxB < tol, maxC < tol, cutsLive}, ...
+             'detail', {'', '', sprintf('%.1e', maxA), sprintf('%.1e', maxB), ...
+                        sprintf('%.1e', maxC), sprintf('difference %.1e', maxD)});
+end   % main test function

@@ -4,10 +4,10 @@ function info = validateSeedParams(seedParams)
 % The contract is the interface between a seed-GEOMETRY model (which builds the
 % strips + mass properties for a particular shape) and the shape-AGNOSTIC code
 % that consumes them: the ODE right-hand side, getMassProperties / getAddedMass,
-% computeSeedLocalVel, and the rigid-body core (rigidBody6DOF). Both the planar
-% flat-plate builder (setupSeedShapeAndMass -> model 'planar') and the future
-% full-3D builder (-> model 'shape3d') must satisfy it, so the shared code can
-% rely on a fixed set of fields regardless of shape.
+% computeSeedLocalVel, and the rigid-body core (rigidBody6DOF). The builder
+% (setupSeedShape3D -> model 'shape3d') must satisfy it. The planar model ('planar')
+% was archived on 2026-10-15 (archive/planar/, git tag planar-final); a planar
+% seedParams is refused.
 %
 % This is a DIAGNOSTIC / test helper -- it is NOT called inside the ODE RHS (that
 % runs thousands of times per integration). Call it once after building a seed,
@@ -16,7 +16,7 @@ function info = validateSeedParams(seedParams)
 % =========================================================================
 % THE CONTRACT
 % -------------------------------------------------------------------------
-% seedParams.model                : 'planar' | 'shape3d'   (the model tag)
+% seedParams.model                : 'shape3d'   (the model tag)
 % seedParams.rhoFluid             : scalar, fluid density (kg/m^3)
 % seedParams.g                    : scalar, gravity magnitude (m/s^2)
 % seedParams.strips.chord         : 1xM strip chord lengths (m)
@@ -115,7 +115,9 @@ function info = validateSeedParams(seedParams)
     % --- Model-specific ---------------------------------------------------
     switch model
         case 'planar'
-            % nothing extra
+            error('validateSeedParams:planarArchived', ...
+                  ['A planar seedParams: the planar model is archived ' ...
+                   '(archive/planar/, git tag planar-final).']);
         case 'shape3d'
             extra = {'ygc_body','chordDir','normalDir','spanDir'};
             for f = extra
@@ -129,7 +131,7 @@ function info = validateSeedParams(seedParams)
             end
         otherwise
             error('validateSeedParams:unknownModel', ...
-                  'Unknown seedParams.model "%s" (expected ''planar'' or ''shape3d'').', model);
+                  'Unknown seedParams.model "%s" (expected ''shape3d'').', model);
     end
 
     info = struct('model', model, 'numStrips', M, 'ok', true);

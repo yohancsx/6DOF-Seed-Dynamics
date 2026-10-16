@@ -46,6 +46,9 @@
 here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
 while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
 addpath(here);  P = seedPaths(here);
+% This tool's sheets carry the OLD classifier's labels as comparison columns, so it
+% (and only it) puts the archived classifyFlightMode stack back on the path.
+addpath(fullfile(P.root, 'testing', 'archive', 'legacy_classifier'));
 root = P.root;
 reviewDir = fullfile(P.misc, "Classifier Review", "2026-09-27_165346_3727986");
 

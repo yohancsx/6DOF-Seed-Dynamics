@@ -35,6 +35,7 @@ time. Where the reasoning was not written down, the entry says so rather than gu
 | 2026-09-24–26 | `46ab3f1` | 6 | 3D test suite; roll/slide degeneration diagnosed; low-AR plan |
 | 2026-09-27 → 10-03 | `e3b6694` | 7 | By-eye review set; paper-metric sign error fixed; six-part classifier |
 | 2026-10-05 | `c6d348c`, `ca9e83e` | 8 | Re-baseline with the fixed classifier; tracked numbers per grid run; flip boundary 36° |
+| 2026-10-15 | `529bdf2`, `c2d1116`, … | 9 | Cleanup: planar model archived (tag `planar-final`), old classifier retired, one-click suite with regression stage 0; `minimal_imp` equivalence test finds the missing off-centre added-mass coupling |
 
 ---
 
@@ -635,6 +636,82 @@ The AR anchor now reads `autorotation`, still at θ = −29.6° against −11.4�
 
 ---
 
+## Phase 9 — Cleanup: one model, one suite (2026-10-15)
+
+**Why.** The 3D model was the only active one, but the code still carried the planar model
+around it.
+
+- **The builder was coupled to the planar model.** `setupSeedShape3D` built a full planar
+  seed and then stripped it.
+- **The old classifier kept running.** Every stage still produced old-classifier labels in
+  brackets, and the animations were coloured by them.
+- **The tests were scattered.** About ten standalone scripts duplicated suite stages, and
+  the regression tests sat outside the one-click suite.
+
+The rule for the cleanup was: same physics and same labels, proven at every step.
+
+**How "nothing changed" was proven.** `testRefactorInvariance` captured a golden reference
+before any edit:
+
+- 16 built seeds (flat, twist, curvature, moving nut, LEV variants, the Hou plate at its five
+  anchors);
+- the RHS at 50 random states each;
+- 12 four-second trajectories (final state, both labels, three metrics).
+
+After every step the code was compared against it: **44/44 bit-identical each time**,
+including identical `seedParams` structs and identical final states.
+
+**What changed.**
+
+1. **Builder.** `physics3d/slicePlanform.m` is a script-generated verbatim port of the planar
+   builder's strip and flat-mass code. `setupSeedShape3D` is now four plain sections (strips,
+   frames, mass, physics) and never touches the planar builder.
+2. **New primary flat test, against `minimal_imp`.** `testMinimalImpEquivalence` extracts
+   Olivia's `Model` function verbatim at run time and flies our model in the plane:
+   - **CoM at the geometric centre:** the equations of motion agree to 1e-14 over 500 states,
+     and her 5 s trajectory is reproduced exactly.
+   - **CoM offset `lcm = 0.1 cm`:** the aerodynamic force and torque still agree exactly
+     (1e-13). The translational equations differ by up to ~1 g, and her trajectory separates
+     after 0.1 s (descent 16.0 vs 18.4 cm/s, opposite rotation).
+   - **The cause:** the added mass sits at the plate's centre. With an off-centre CoM,
+     translation and rotation couple through it (`−m₂ω²·lcm`, `m₂·lcm·dω/dt` in her force
+     balance), and our added-mass blocks have no such coupling. It is first-principles and in
+     the validated reference, so it goes on the roadmap. These cases WARN until it is in.
+3. **Old classifier retired.**
+   - `classifyFlightMode` and its thresholds, timeline and palette moved to
+     `testing/archive/legacy_classifier/`. Only the classifier review tools load it, for
+     their old-label columns.
+   - `runSingleMode` and the suite label with the six-part classifier only.
+   - Animations are coloured by a new `classifySeedModeTimeline`. It agrees with the
+     whole-run label on all 17 gallery examples.
+4. **Paper-vocabulary classifier kept as a cross-check.** Stage F names both scores and prints
+   a three-way cross-tab. On the 2026-10-05 grid, the gap between them (30.8% vs 14.4%) is
+   almost entirely one call: it labels 43 of 48 `flutterSpiral` cells AR, which the six-part
+   mapping counts as having no paper equivalent.
+5. **Planar model archived** to `archive/planar/`:
+   - its RHS, builder, span-force / `Tx` / `Ty` terms, suites and baselines, with its tuning
+     constants moved out of `computeAeroCoeffs` into `planarAeroConstants`;
+   - its final record (the seven modes, the test suite, the 40×40 grid) is in
+     `model_test_results/planar_final_c2d1116/`, and the git tag `planar-final` marks the
+     commit;
+   - `buildSeedParams`, `seedRHS` and `validateSeedParams` are shape3d-only;
+   - the planar-core equivalence test still runs against the archived code (core difference
+     0.0; full-default difference 3.6e4, so the comparison is real).
+6. **Suite.**
+   - The regression tests are functions, run together by `testing/runRegressionTests.m`
+     (66 checks, ~35 s).
+   - They form stage 0 of `runSeedTestSuite3D`, which only ever warns.
+   - `cfg.profile = 'quick' | 'full'`.
+   - `appendTrackingRow` merges new columns into the tracking history.
+   - The duplicate twist, curvature and paper scripts moved to `testing/archive/duplicates/`.
+   - `testActivePathClean` statically checks that no active code calls archived code.
+7. **Paths.**
+   - `seedPaths.m` replaced the hard-coded machine paths in 26 scripts.
+   - Suite runs go to `model_test_results/`, one-off studies to `Misc Outputs/`, and
+     `Outputs/` is reserved for paper material.
+
+---
+
 ## Decided against or superseded
 
 | item | status | why | where |
@@ -647,6 +724,6 @@ The AR anchor now reads `autorotation`, still at θ = −29.6° against −11.4�
 | Induced inflow + Prandtl rotor tip loss | dropped | `v_i` ≈ 0.19% of descent; symmetric tip loss adds no roll moment | phase 4 |
 | LEV as the collapse fix | demoted | CoP effect ~7× too small; cannot act span-first; kept as a switch for lift magnitude | phase 4 |
 | Edge drag relocated to the windward tip | wrong | Force parallel to its arm; `r × F` unchanged. Led to the Munk moment | phase 5 |
-| Prune dead aero constants when planar retires | not planned | Planar is kept frozen as the reference; the constants stay | phase 2 |
+| Prune dead aero constants when planar retires | done differently (phase 9) | Planar was archived; its five constants moved with it to `archive/planar/aero/planarAeroConstants.m` | phases 2, 9 |
 | Fix the `(π−|α|)` branch quirks | not worth it | Cost ≤ 0.7% of peak CT, 0.2% of peak CD, measured | phase 0 port |
 | Full "combined" two-plane spanwise re-discretization | set aside (reason unrecorded) | The phase-6 low-AR plan revisits the same spanwise-flow problem | phases 0, 6 |

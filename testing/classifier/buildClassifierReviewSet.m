@@ -54,6 +54,13 @@
 here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
 while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
 addpath(here);  P = seedPaths(here);
+% This tool's sheets carry the OLD classifier's labels as comparison columns, so it
+% (and only it) puts the archived classifyFlightMode stack back on the path.
+addpath(fullfile(P.root, 'testing', 'archive', 'legacy_classifier'));
+% It also flies the ARCHIVED planar model beside the active one (cfg.models), so it
+% puts the archived planar builder and RHS on the path too.
+addpath(fullfile(P.root, 'archive', 'planar', 'physics'), ...
+        fullfile(P.root, 'archive', 'planar', 'aero'));
 root = P.root;
 outRoot = fullfile(P.misc, "Classifier Review");
 
@@ -123,8 +130,11 @@ parfor k = 1:nRuns
     b.nutPos_t = [chordFrac(k)*cfg.chordLength; 0; spanFrac(k)*cfg.spanLength];
     c = cfg;  c.shapeModel = models{modelIdx(k)};
     try
-        sp  = buildSeedParams(b, c);
-        rhs = seedRHS(sp);
+        if strcmp(c.shapeModel, 'planar')            % the archived planar model
+            sp = buildPlanarSeedParams(b, c);   rhs = @seed6DOFODE;
+        else
+            sp = buildSeedParams(b, c);         rhs = seedRHS(sp);
+        end
         x0  = [zeros(3,1); cfg.q0; zeros(3,1); cfg.omega0];
         [t, x] = ode45(@(tt,xx) rhs(tt,xx,sp), cfg.tspan, x0, odeOpts);
         tAll{k} = t;  xAll{k} = x;
@@ -240,7 +250,8 @@ for k = 1:nRuns
     if cfg.animate
         c = cfg;  c.shapeModel = mdl;
         b = baseBsp;  b.tSamples = 0;  b.nutMass_t = cfg.nutMass;  b.nutPos_t = nut;
-        sp = buildSeedParams(b, c);
+        if strcmp(mdl, 'planar'); sp = buildPlanarSeedParams(b, c);
+        else;                     sp = buildSeedParams(b, c); end
         animateCaseVideo(t, x, sp, runId{k}, vidDir, aopt);
     end
     fprintf('  [%3d/%d] %s done  (%.0f s elapsed)\n', k, nRuns, runId{k}, toc(tAnim));

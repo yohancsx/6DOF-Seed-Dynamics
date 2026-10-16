@@ -109,10 +109,14 @@ comSpanOffset  = mp.c(3) - zGeoCenterSpan;   % CoM spanwise offset from that cen
 % CD_rot, CD0, and C_fy are all alpha-independent (see computeAeroCoeffs), so
 % any alpha works here; fetch all three from a single call.
 constCoeffs  = computeAeroCoeffs(0, aeroParams);
+% ARCHIVE EDIT (2026-10-15): the planar-only tuning constants moved out of the
+% shared computeAeroCoeffs into planarAeroConstants (same values, same override
+% rule). The untouched original is at git tag planar-final.
+planarK      = planarAeroConstants(aeroParams);
 CD_rot_const = constCoeffs.CD_rot;
 CD0_const    = constCoeffs.CD0;
-C_fy_const   = constCoeffs.C_fy;
-C_Tx_const   = constCoeffs.C_Tx;
+C_fy_const   = planarK.C_fy;
+C_Tx_const   = planarK.C_Tx;
 
 Tx = spanSpinDamping(totalSpan, chordMean, omega_x, comSpanOffset, CD_rot_const, rhoFluid);
 
@@ -238,7 +242,7 @@ if enableSpanForce
 
     % Full span force [0; Fy; Fz] and its span-CoP fraction (fraction of span).
     [F_span_full, l_cp_frac_span] = computeSpanForce(vSpan_gc, vNormal_gc, ...
-        totalSpan, chordMean, spanCoeffs.C_span, spanCoeffs, rhoFluid);
+        totalSpan, chordMean, planarK.C_span, spanCoeffs, rhoFluid);
 
     % --- FORCE: keep ONLY the body-z (spanwise) component ------------------
     % Explicitly DISCARD body-x (already 0) and body-y (normal). The strips
@@ -279,7 +283,7 @@ if enableSpanForce
     if useSpanTorqueAttenuation
         v_ip_span       = hypot(vSpan_gc, vNormal_gc);
         k_reduced       = abs(omega_y) * totalSpan / (2 * max(v_ip_span, eps));
-        spanTorqueAtten = 1 / (1 + (k_reduced / spanCoeffs.k0_spanTorque)^2);
+        spanTorqueAtten = 1 / (1 + (k_reduced / planarK.k0_spanTorque)^2);
     else
         spanTorqueAtten = 1;   % raw, unattenuated span torque
     end
@@ -288,7 +292,7 @@ if enableSpanForce
     % the force and torque strengths are independently tunable. enableSpanTorque
     % gates the moment entirely (force still applied) for on/off debugging.
     if useSpanTorque
-        tau_span = spanTorqueAtten * spanCoeffs.C_span_torque * cross(r_spanArm, F_span_full);
+        tau_span = spanTorqueAtten * planarK.C_span_torque * cross(r_spanArm, F_span_full);
     else
         tau_span = [0; 0; 0];   % span FORCE kept, span TORQUE dropped
     end

@@ -1,4 +1,9 @@
-%% Regression: curvature-correct mass properties (setupSeedShape3D)
+function res = testCurvedMassProperties()
+% TESTCURVEDMASSPROPERTIES  Regression: curvature-correct mass properties (setupSeedShape3D)
+%
+% Returns res, a struct array (.name, .pass, .detail), one entry per check, and
+% prints as before. Run it on its own, or through testing/runRegressionTests.
+%
 % Locks the 3D mass/inertia derivation for a seed whose strips leave the body
 % x-z plane. Run after any change to the shape builder's mass code.
 %
@@ -25,6 +30,10 @@
 here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
 while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
 addpath(here);  P = seedPaths(here);
+% The planar model is archived; this test compares against it, so it (and only
+% it) puts the archived planar builder and RHS back on the path.
+addpath(fullfile(P.root, 'archive', 'planar', 'physics'), ...
+        fullfile(P.root, 'archive', 'planar', 'aero'));
 root = P.root;
 
 tolRel = 1e-10;   tolAbs = 1e-12;
@@ -53,7 +62,7 @@ fprintf('A) flat plate vs closed form : rel err %.2e, max offdiag %.2e, mass err
         errA, offA, abs(spA.massParams.M_total-m), pf(okA));
 
 %% B. Reduction: curved-mass path on a flat seed vs the planar builder
-spP = buildSeedParams(base, cfg);
+spP = buildPlanarSeedParams(base, cfg);     % the archived planar builder
 bB  = base;  bB.curvature = flatCurv;   spB = buildSeedParams(bB, cfg3);
 dCom = max(abs(spP.massParams.com_t  - spB.massParams.com_t),  [], 'all');
 dI   = max(abs(spP.massParams.I_G_t  - spB.massParams.I_G_t),  [], 'all');
@@ -123,5 +132,11 @@ if okA && okB && okC && okD
 else
     fprintf(2, '\nFAIL: see the checks above.\n');
 end
+
+% --- result struct (for runRegressionTests / stage 0 of the 3D suite) ------
+res = struct('name', {'A flat plate vs closed form', 'B curved path on a flat seed == planar builder', ...
+                      'C bowl: CoM, symmetry, positive inertia', 'D switch defaults and overrides'}, ...
+             'pass', {okA, okB, okC, okD}, 'detail', {'', '', '', ''});
+end   % main test function
 
 function s = pf(ok);  if ok; s = 'PASS'; else; s = 'FAIL'; end;  end

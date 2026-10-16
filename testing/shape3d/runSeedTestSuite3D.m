@@ -1,9 +1,20 @@
 %% Seed dynamics test suite (3D MODEL) -- one-click sweep runner
-% The shape3d counterpart of testing/planar/runSeedTestSuite.m, and called the
-% same way: edit the configuration block below and run the file. Everything it
-% writes carries a 3D marker, so 2D and 3D outputs can never be confused.
+% THE one-click run: after ANY change to the model, edit the configuration block
+% below and run the file, and every output is regenerated in one timestamped,
+% git-stamped run folder. (It began as the shape3d counterpart of the planar suite,
+% now archived in archive/planar/testing/runSeedTestSuite.m.)
+%
+% PROFILES: cfg.profile = 'full' (every stage at full resolution, with videos: the
+% baselines) or 'quick' (no videos, coarse grids and sweeps, same physics and
+% tolerances: a fast look after a change). Quick and full numbers are not
+% comparable; the profile is in the run-folder name and the tracking history.
 %
 % WHAT IT RUNS (each stage can be switched off in section 1):
+%   0. REGRESSION TESTS -- testing/runRegressionTests: every pass/fail check
+%                          (minimal_imp equivalence, planar-core equivalence,
+%                          curved mass, the physics terms, the paper metrics, the
+%                          archive guard). ALWAYS ONLY WARNS: a failure is reported
+%                          at the top of summary_3D.txt and the run carries on.
 %   A. TWIST sweep      -- spanwise geometric pitch, 0..35 deg tip, centred nut,
 %                          released LEVEL (cfg.q0Twist) so the spin-up is the
 %                          shape's doing and not the release tilt's.
@@ -22,24 +33,22 @@
 %                          time-varying mass path (nutPos_t -> com_t, I_G_t,
 %                          I_G_dot_t) under the 3D model. One ANIMATION each.
 %   E. MODE GRID        -- chord x span nut-position map on OUR seed, 3D model.
-%                          NOTE this is the grid that does not otherwise exist as
-%                          a standalone script: testing/planar/runSeedModeGrid.m
-%                          calls seed6DOFODE directly and is planar-only, so it
-%                          contains NONE of the 3D terms.
+%                          Open it with testing/tools/pickModeGridRuns.m to click
+%                          cells and animate them.
 %   F. PAPER COMPARISON -- ON BY DEFAULT. Hou et al. (2025): their plate, their
 %                          parameter window, their release, the five published
 %                          anchor cases and the phase map, scored against the
 %                          digitised Fig. 2a.
 %
 % MODE LABELS: the six-part classifier (classifySeedMode; definitions in
-% testing/classifier/MODE_DEFINITIONS.md) is the label of record in every stage;
-% the older classifyFlightMode label is kept beside it in [brackets].
+% testing/classifier/MODE_DEFINITIONS.md) is the label in every stage. Stage F
+% also scores the paper-vocabulary classifier (classifyPaperMode) as a cross-check.
 %
-% TRACKED NUMBERS (stages E and F, via summarizeModeGrid): paper agreement,
+% TRACKED NUMBERS (stages 0, E and F): regression pass count, paper agreement,
 % non-physical fraction, and the span-tilt distribution of revolvers. Written to
-% <run>/tracking_3D.txt, and one row per run is appended to
-% <outPath>/tracking_history_3D.csv so runs can be compared over time.
-% Run folders are named <timestamp>_<githash>_3D_<label>, under model_test_results/
+% <run>/tracking_3D.txt, and one row per run is merged into
+% <outPath>/tracking_history_3D.csv (appendTrackingRow) so runs can be compared.
+% Run folders are named <timestamp>_<githash>_3D_<label>_<profile>, under model_test_results/
 % (git-ignored outputs). Stage F also writes paper_comparison_3D.png: ours vs the
 % digitised Fig. 2a, with every disagreeing cell outlined.
 %
@@ -68,6 +77,9 @@ root = P.root;
 % repo is for paper/presentation material only.
 outPath = string(P.results);
 
+% --- Profile: 'full' (baselines, with videos) or 'quick' (fast check) -------
+cfg.profile = 'full';
+
 % --- Label this configuration (goes in the run folder name) ---------------
 cfg.label = 'all_enabled';           % e.g. 'noKirchhoff', 'LEVon', 'noEdgeDrag'
 
@@ -84,6 +96,7 @@ sw.levApplicationPoint   = 'forward';
 % sw.lev = struct('rossbyDefinition','geometric');
 
 % --- Which stages to run --------------------------------------------------
+cfg.runRegression = true;      % stage 0: the pass/fail regression tests (warn only)
 cfg.runTwist      = true;
 cfg.runCurvature  = true;
 cfg.runSweeps     = true;      % the nine 2D-parity groups
@@ -108,7 +121,6 @@ cfg.shapeModel  = 'shape3d';
 % --- Simulation -----------------------------------------------------------
 cfg.tspan = [0 12];   cfg.odeRelTol = 1e-6;   cfg.odeAbsTol = 1e-8;
 cfg.metricOpts.windowStartFrac = 0.5;   cfg.metricOpts.convergeTol = 0.20;
-cfg.modeThresholds = defaultModeThresholds();          % older classifier (continuity)
 cfg.seedModeThresholds = defaultSeedModeThresholds();  % six-part classifier (of record)
 % Every mode-grid run appends one row of tracked numbers (paper agreement,
 % non-physical fraction, revolver span tilt) to this file, so runs can be compared
@@ -152,21 +164,36 @@ cfg.gridN     = 20;                            % mode grid is gridN x gridN
 cfg.gridMax   = 1.5;                           % nut offset range, in chord/span units
 cfg.paperNX   = 13;   cfg.paperNY = 8;         % paper-window grid resolution
 
-%% 2. Apply the switch overrides, build the run folder
+%% 2. Apply the switch overrides and the profile, build the run folder
 fn = fieldnames(sw);
 for k = 1:numel(fn);  cfg.(fn{k}) = sw.(fn{k});  end
+
+% QUICK profile: the same physics, tolerances and run lengths (so labels still
+% mean the same), on fewer cases and coarser grids, and no videos.
+switch lower(cfg.profile)
+    case 'full'
+    case 'quick'
+        cfg.animate     = false;
+        cfg.tipDeg      = [0 10 20 30];
+        cfg.nIncr       = 3;
+        cfg.stripCounts = [5 10];
+        cfg.gridN       = 8;
+        cfg.paperNX     = 7;    cfg.paperNY = 4;
+    otherwise
+        error('runSeedTestSuite3D:profile', 'cfg.profile must be ''full'' or ''quick''.');
+end
 
 timestamp = char(datetime('now','Format','yyyy-MM-dd_HHmmss'));
 [gst, gh] = system(sprintf('git -C "%s" rev-parse --short HEAD', root));
 gh = strtrim(gh);  if gst ~= 0 || isempty(gh) || contains(gh, ' '); gh = 'nogit'; end
 [~, gd] = system(sprintf('git -C "%s" status --porcelain --untracked-files=no', root));
 if ~isempty(strtrim(gd)); gh = [gh '-dirty']; end
-% <timestamp>_<githash>_3D_<label>: the hash pins the code, as for baseline snapshots
-runDir = fullfile(char(outPath), sprintf('%s_%s_3D_%s', timestamp, gh, cfg.label));
+% <timestamp>_<githash>_3D_<label>_<profile>: the hash pins the code
+runDir = fullfile(char(outPath), sprintf('%s_%s_3D_%s_%s', timestamp, gh, cfg.label, ...
+                                         lower(cfg.profile)));
 mkdir(runDir);
 
-% Mode labels: the six-part classifier (classifySeedMode) is the label of record;
-% the older classifyFlightMode label is kept beside it for continuity with past runs.
+% Mode labels: the six-part classifier (classifySeedMode) everywhere.
 so = cfg.metricOpts;   so.spanLength = cfg.spanLength;
 so.flipHysteresisTurns = cfg.seedModeThresholds.flipHysteresisTurns;
 
@@ -196,12 +223,34 @@ fprintf('physics in force: edgeDrag %d, addedMassRate %d, addedMassMoment %d, LE
         effSwitches.levApplicationPoint, effSwitches.rossbyDefinition);
 
 summary = strings(0,1);
-summary(end+1) = sprintf('3D test suite  %s  git %s  label=%s', timestamp, gh, cfg.label); %#ok<*SAGROW>
-summary(end+1) = "mode labels: six-part classifier (classifySeedMode); older classifyFlightMode label in [brackets]";
+summary(end+1) = sprintf('3D test suite  %s  git %s  label=%s  profile=%s', timestamp, gh, ...
+                         cfg.label, lower(cfg.profile)); %#ok<*SAGROW>
+summary(end+1) = "mode labels: six-part classifier (classifySeedMode) [flip/revolution/attitude/path/regularity]";
 summary(end+1) = sprintf('physics: edgeDrag %d, rate %d, moment %d, LEV %d (%s, %s)', ...
         effSwitches.enableEdgeDrag, effSwitches.enableAddedMassRate, ...
         effSwitches.enableAddedMassMoment, effSwitches.enableLEV, ...
         effSwitches.levApplicationPoint, effSwitches.rossbyDefinition);
+
+%% 2b. Stage 0 -- REGRESSION TESTS (always only WARNS)
+% Every pass/fail check, first, so a run's summary opens with whether the model
+% still passes them. A failure is a warning, never a stop: a test that starts to
+% fail after a physics change may be exactly the point (e.g. the minimal_imp
+% offset cases, which WARN until the added-mass coupling is in).
+regress = struct('nPass', NaN, 'nTotal', NaN, 'nWarn', NaN);
+if cfg.runRegression
+    fprintf('\n--- 0. regression tests ---\n');
+    addpath(fullfile(root, 'testing'));
+    [regT, regress] = runRegressionTests();
+    writetable(regT, fullfile(runDir, 'regression_3D.csv'));
+    fid = fopen(fullfile(runDir, 'regression_3D.txt'), 'w');
+    fprintf(fid, '%s\n', regress.lines);   fclose(fid);
+    if regress.nPass < regress.nTotal
+        warning('runSeedTestSuite3D:regression', ...
+                '%d of %d regression checks FAIL -- see regression_3D.txt. Continuing.', ...
+                regress.nTotal - regress.nPass, regress.nTotal);
+    end
+    summary = [summary(:); ""; regress.lines];
+end
 
 %% 3. Stage A -- TWIST sweep (+ one animation per case)
 twist = struct('tipDeg',[], 'mode',strings(0,1), 'descent',[], 'vSpin',[], 'cone',[]);
@@ -209,29 +258,29 @@ if cfg.runTwist
     fprintf('\n--- A. twist sweep ---\n');
     twDir = fullfile(runDir, 'twist_3D');   mkdir(twDir);
     nT = numel(cfg.tipDeg);
-    tw_mode = strings(nT,1);  tw_desc = nan(nT,1);  tw_vs = nan(nT,1);  tw_cone = nan(nT,1);
-    tw_new = strings(nT,1);
+    tw_mode = strings(nT,1);  tw_parts = strings(nT,1);
+    tw_desc = nan(nT,1);  tw_vs = nan(nT,1);  tw_cone = nan(nT,1);
     for j = 1:nT
         kt = deg2rad(cfg.tipDeg(j))/hs;
         bb = baseBsp;  bb.twist = @(z) kt .* z;      % anti-symmetric twist
         nm = sprintf('twist_%02ddeg', cfg.tipDeg(j));
         r = runSingleMode(nm, [0;0;0], cfg.q0Twist, cfg.omega0, cfg, bb);
-        tw_new(j)  = string(classifySeedMode(computeSeedModeMetrics(r.t, r.x, so), ...
-                                             cfg.seedModeThresholds));
-        tw_mode(j) = string(r.mode);   tw_desc(j) = r.metrics.descentSpeed;
+        tw_mode(j) = string(r.mode);   tw_parts(j) = string(r.parts);
+        tw_desc(j) = r.metrics.descentSpeed;
         tw_vs(j)   = r.metrics.verticalSpinMag;  tw_cone(j) = r.metrics.coneAngleDeg;
         if cfg.animate
-            animateCaseVideo(r.t, r.x, r.seedParams, nm, twDir, aopt);
+            ao = aopt;  ao.modeLabel = sprintf('%s [%s]', r.mode, r.parts);
+            animateCaseVideo(r.t, r.x, r.seedParams, nm, twDir, ao);
         end
     end
-    twist = struct('tipDeg',cfg.tipDeg, 'mode',tw_new, 'modeOld',tw_mode, ...
+    twist = struct('tipDeg',cfg.tipDeg, 'mode',tw_mode, 'parts',tw_parts, ...
                    'descent',tw_desc, 'vSpin',tw_vs, 'cone',tw_cone);
     save(fullfile(runDir,'twist_sweep_3D.mat'), 'twist', 'cfg', 'effSwitches');
     summary(end+1) = "";
-    summary(end+1) = "TWIST sweep (tip deg -> mode [old], descent, vSpin, cone)";
+    summary(end+1) = "TWIST sweep (tip deg -> mode [parts], descent, vSpin, cone)";
     for j = 1:nT
         summary(end+1) = sprintf('  %2d  %-18s [%-12s] %6.2f %7.2f %6.1f', cfg.tipDeg(j), ...
-                                 tw_new(j), tw_mode(j), tw_desc(j), tw_vs(j), tw_cone(j));
+                                 tw_mode(j), tw_parts(j), tw_desc(j), tw_vs(j), tw_cone(j));
     end
 end
 
@@ -241,8 +290,8 @@ if cfg.runCurvature
     fprintf('\n--- B. curvature sweep ---\n');
     cvDir = fullfile(runDir, 'curvature_3D');   mkdir(cvDir);
     nC = numel(cfg.tipDeg);
-    cv_mode = strings(nC,2);  cv_desc = nan(nC,2);  cv_vs = nan(nC,2);  cv_comY = nan(nC,2);
-    cv_new  = strings(nC,2);
+    cv_mode = strings(nC,2);  cv_parts = strings(nC,2);
+    cv_desc = nan(nC,2);  cv_vs = nan(nC,2);  cv_comY = nan(nC,2);
     famName = {'bowl','oneSide'};
     for fam = 1:2
         for j = 1:nC
@@ -255,25 +304,25 @@ if cfg.runCurvature
             end
             nm = sprintf('%s_%02ddeg', famName{fam}, cfg.tipDeg(j));
             r = runSingleMode(nm, [0;0;0], cfg.q0, cfg.omega0, cfg, bb);
-            cv_new(j,fam)  = string(classifySeedMode(computeSeedModeMetrics(r.t, r.x, so), ...
-                                                     cfg.seedModeThresholds));
-            cv_mode(j,fam) = string(r.mode);   cv_desc(j,fam) = r.metrics.descentSpeed;
+            cv_mode(j,fam) = string(r.mode);   cv_parts(j,fam) = string(r.parts);
+            cv_desc(j,fam) = r.metrics.descentSpeed;
             cv_vs(j,fam)   = r.metrics.verticalSpinMag;
             cv_comY(j,fam) = r.seedParams.massParams.com_t(2,1);
             if cfg.animate
-                animateCaseVideo(r.t, r.x, r.seedParams, nm, cvDir, aopt);
+                ao = aopt;  ao.modeLabel = sprintf('%s [%s]', r.mode, r.parts);
+                animateCaseVideo(r.t, r.x, r.seedParams, nm, cvDir, ao);
             end
         end
     end
-    curv = struct('tipDeg',cfg.tipDeg, 'family',{famName}, 'mode',cv_new, ...
-                  'modeOld',cv_mode, 'descent',cv_desc, 'vSpin',cv_vs, 'comY',cv_comY);
+    curv = struct('tipDeg',cfg.tipDeg, 'family',{famName}, 'mode',cv_mode, ...
+                  'parts',cv_parts, 'descent',cv_desc, 'vSpin',cv_vs, 'comY',cv_comY);
     save(fullfile(runDir,'curvature_sweep_3D.mat'), 'curv', 'cfg', 'effSwitches');
     summary(end+1) = "";
-    summary(end+1) = "CURVATURE sweep (tip deg -> bowl mode [old] descent | oneSide mode [old] descent)";
+    summary(end+1) = "CURVATURE sweep (tip deg -> bowl mode [parts] descent | oneSide mode [parts] descent)";
     for j = 1:nC
-        summary(end+1) = sprintf('  %2d  %-18s [%-12s] %6.2f | %-18s [%-12s] %6.2f', ...
-            cfg.tipDeg(j), cv_new(j,1), cv_mode(j,1), cv_desc(j,1), ...
-            cv_new(j,2), cv_mode(j,2), cv_desc(j,2));
+        summary(end+1) = sprintf('  %2d  %-18s [%-28s] %6.2f | %-18s [%-28s] %6.2f', ...
+            cfg.tipDeg(j), cv_mode(j,1), cv_parts(j,1), cv_desc(j,1), ...
+            cv_mode(j,2), cv_parts(j,2), cv_desc(j,2));
     end
 end
 
@@ -370,40 +419,33 @@ if cfg.runComMove
         rhs = seedRHS(sp);
         x0  = [zeros(3,1); cfg.q0; zeros(3,1); cfg.omega0];
         [t, x] = ode45(@(tt,xx) rhs(tt,xx,sp), [tD(1) tD(end)], x0, cmOde);
-        dwellModes = strings(size(dwellInt,1),1);  dwellModesOld = dwellModes;
+        dwellModes = strings(size(dwellInt,1),1);
         soD = so;  soD.windowStartFrac = 0;          % the dwell slice IS the window
         for i = 1:size(dwellInt,1)
             sel = t >= dwellInt(i,1)+0.45*(dwellInt(i,2)-dwellInt(i,1)) & t <= dwellInt(i,2);
             if nnz(sel) >= 8
                 dwellModes(i) = string(classifySeedMode( ...
                     computeSeedModeMetrics(t(sel), x(sel,:), soD), cfg.seedModeThresholds));
-                m = computeTrajectoryMetrics(t(sel), x(sel,:), struct('windowStartFrac',0));
-                % A dwell is short by construction, so do not also penalise it
-                % for failing the convergence test that length would fail.
-                m.converged = true;
-                dwellModesOld(i) = string(classifyFlightMode(m, cfg.modeThresholds));
             else
-                dwellModes(i) = "(short)";  dwellModesOld(i) = "(short)";
+                dwellModes(i) = "(short)";
             end
         end
         save(fullfile(cmDir,[scen(si).name '.mat']), 't','x','tD','nutPos','eventT', ...
-             'dwellInt','dwellModes','dwellModesOld','cfg','effSwitches');
+             'dwellInt','dwellModes','cfg','effSwitches');
         fprintf('  %-20s %.1f s, final height %+.3f m, modes: %s\n', scen(si).name, ...
                 tD(end), x(end,2), strjoin(cellstr(dwellModes),' -> '));
         summary(end+1) = sprintf('  %-20s %s', scen(si).name, strjoin(cellstr(dwellModes),' -> '));
-        summary(end+1) = sprintf('  %-20s [%s]', '', strjoin(cellstr(dwellModesOld),' -> '));
         if cfg.animate
             ao = aopt;  ao.window = Inf;  ao.eventTimes = eventT;   % the whole scripted motion
+            ao.modeLabel = strjoin(cellstr(dwellModes), ' -> ');
             animateCaseVideo(t, x, sp, scen(si).name, cmDir, ao);
         end
     end
 end
 
 %% 7. Stage E -- MODE GRID on our seed (3D model), six-part classifier
-% Labels of record: classifySeedMode (testing/classifier/MODE_DEFINITIONS.md). The
-% older classifyFlightMode label is saved beside it (modeIdxOld) so maps from
-% earlier runs stay comparable. Tracked numbers (summarizeModeGrid): non-physical
-% fraction and the span tilt of revolvers.
+% Labels: classifySeedMode (testing/classifier/MODE_DEFINITIONS.md). Tracked
+% numbers (summarizeModeGrid): non-physical fraction and the span tilt of revolvers.
 gridTrack = [];
 if cfg.runModeGrid
     fprintf('\n--- E. mode grid (our seed, 3D) ---\n');
@@ -412,11 +454,10 @@ if cfg.runModeGrid
     c = cfg.chordLength;  S = cfg.spanLength;
     pal = seedModePalette();
     modeList = pal.names;   modeCol = pal.colors;
-    [modeListOld, ~] = seedModeColors();
-    th = cfg.modeThresholds;   ths = cfg.seedModeThresholds;
+    ths = cfg.seedModeThresholds;
     odeOpts = odeset('RelTol',cfg.odeRelTol,'AbsTol',cfg.odeAbsTol);
     total = cfg.gridN^2;  nXg = cfg.gridN;
-    gLab = repmat({'failed'}, total, 1);  gOld = gLab;  gParts = repmat({''}, total, 1);
+    gLab = repmat({'failed'}, total, 1);  gParts = repmat({''}, total, 1);
     gTilt = nan(total,1);  gRev = false(total,1);
     gDesc = nan(total,1);  gVs = nan(total,1);  gCone = nan(total,1);
     try if isempty(gcp('nocreate')); parpool('local'); end; catch; end
@@ -425,7 +466,7 @@ if cfg.runModeGrid
         iz = floor((k-1)/nXg)+1;   ix = mod(k-1,nXg)+1;
         b = baseBsp;  b.tSamples = 0;
         b.nutPos_t = [chordFrac(ix)*c; 0; spanFrac(iz)*S];  b.nutMass_t = cfg.nutMass;
-        lbl = 'failed';  old = 'failed';  prt = '';  tilt = NaN;  rev = false;
+        lbl = 'failed';  prt = '';  tilt = NaN;  rev = false;
         d = NaN;  v = NaN;  cn = NaN;
         try
             sp  = buildSeedParams(b, cfg);
@@ -438,22 +479,17 @@ if cfg.runModeGrid
                 prt  = sprintf('%s/%s/%s/%s/%s', p.flip, p.revolution, p.attitude, ...
                                p.path, p.regularity);
                 tilt = sm.absSpanTiltDeg;   rev = ~strcmp(p.revolution, 'none');
-                old  = classifyFlightMode(sm, th);
                 d = sm.descentSpeed;  v = sm.verticalSpinMag;  cn = sm.coneAngleDeg;
-            else
-                old = 'chaotic';            % the old grid's convention for a blow-up
             end
         catch
         end
-        gLab{k} = lbl;  gOld{k} = old;  gParts{k} = prt;  gTilt(k) = tilt;  gRev(k) = rev;
+        gLab{k} = lbl;  gParts{k} = prt;  gTilt(k) = tilt;  gRev(k) = rev;
         gDesc(k) = d;   gVs(k) = v;     gCone(k) = cn;
     end
     rs = @(v) reshape(v, nXg, cfg.gridN).';
     modeName  = string(rs(gLab));
     partsGrid = string(rs(gParts));
     [~, modeIdx]    = ismember(modeName, string(modeList));
-    [~, modeIdxOld] = ismember(string(rs(gOld)), string(modeListOld));
-    modeIdxOld(modeIdxOld == 0) = numel(modeListOld);
     gridMetrics = struct('descentSpeed',rs(gDesc), 'verticalSpinMag',rs(gVs), ...
                          'coneAngleDeg',rs(gCone), 'absSpanTiltDeg',rs(gTilt), ...
                          'revolving',rs(gRev));
@@ -465,7 +501,7 @@ if cfg.runModeGrid
     % so the picker draws the six-part classifier's names and colours.
     q0 = cfg.q0;   omega0 = cfg.omega0; %#ok<NASGU>
     save(fullfile(runDir,'mode_grid_3D.mat'), 'modeIdx','modeName','modeList','modeCol', ...
-         'partsGrid','modeIdxOld','modeListOld','gridMetrics','gridTrack','chordFrac', ...
+         'partsGrid','gridMetrics','gridTrack','chordFrac', ...
          'spanFrac','cfg','effSwitches','q0','omega0');
 
     summary(end+1) = "";
@@ -497,10 +533,10 @@ if cfg.runModeGrid
 end
 
 %% 8. Stage F -- PAPER COMPARISON (Hou et al. 2025)  [ON by default]
-% Three labels per cell: the six-part classifier (of record, scored by
-% summarizeModeGrid against the digitised Fig. 2a), the paper-vocabulary
-% classifier (classifyPaperMode, with the 2026-10-03 sign fix), and the older
-% classifyFlightMode.
+% Two labels per cell: the six-part classifier (of record, scored by
+% summarizeModeGrid against the digitised Fig. 2a) and the paper-vocabulary
+% classifier (classifyPaperMode, Hou et al.'s own definitions, with the
+% 2026-10-03 sign fix) as a cross-check.
 paperTrack = [];  agreeFrac = NaN;
 if cfg.runPaperGrid
     fprintf('\n--- F. paper comparison ---\n');
@@ -515,7 +551,7 @@ if cfg.runPaperGrid
     pmo.flipHysteresisTurns = cfg.seedModeThresholds.flipHysteresisTurns;
     pOde = odeset('RelTol',pcfg.odeRelTol,'AbsTol',pcfg.odeAbsTol);
     pq0 = pcfg.releaseQuat;  pw0 = pcfg.releaseOmega;
-    pth = cfg.modeThresholds;  ths = cfg.seedModeThresholds;
+    ths = cfg.seedModeThresholds;
 
     % --- the five published anchors ---------------------------------------
     anch = { 'AR ', 0.39, 0.17, -11.4,  4.2; ...
@@ -548,14 +584,14 @@ if cfg.runPaperGrid
     xaGrid = linspace(0.01, 0.41, cfg.paperNX);
     ybGrid = linspace(0.01, 0.20, cfg.paperNY);
     pTot = cfg.paperNX * cfg.paperNY;   pnX = cfg.paperNX;
-    pLab = repmat({'failed'}, pTot, 1);  oLab = pLab;  nLab = pLab;
+    pLab = repmat({'failed'}, pTot, 1);  nLab = pLab;
     pVd = nan(pTot,1);  pTh = nan(pTot,1);  pTilt = nan(pTot,1);  pRev = false(pTot,1);
     tP = tic;
     parfor k = 1:pTot
         iy = floor((k-1)/pnX)+1;   ix = mod(k-1,pnX)+1;
         b = pbsp;  b.tSamples = 0;
         b.nutPos_t = toNutPos(xaGrid(ix), ybGrid(iy));  b.nutMass_t = pcfg.nutMass;
-        lab = 'failed';  our = 'failed';  nw = 'failed';
+        lab = 'failed';  nw = 'failed';
         vd = NaN;  thv = NaN;  tilt = NaN;  rev = false;
         try
             sp  = buildSeedParams(b, pcfg);
@@ -565,18 +601,17 @@ if cfg.runPaperGrid
             if all(isfinite(x(:)))
                 pm  = computeSeedModeMetrics(t, x, pmo);
                 lab = classifyPaperMode(pm);
-                our = classifyFlightMode(pm, pth);
                 [nw, p] = classifySeedMode(pm, ths);
                 vd = pm.descentSpeed;  thv = pm.spanAxisTiltDeg;
                 tilt = pm.absSpanTiltDeg;   rev = ~strcmp(p.revolution, 'none');
             end
         catch
         end
-        pLab{k} = lab;  oLab{k} = our;  nLab{k} = nw;
+        pLab{k} = lab;  nLab{k} = nw;
         pVd(k) = vd;  pTh(k) = thv;  pTilt(k) = tilt;  pRev(k) = rev;
     end
     rp = @(v) reshape(v, pnX, cfg.paperNY).';
-    paperMode = string(rp(pLab));   ourMode = string(rp(oLab));   newMode = string(rp(nLab));
+    paperMode = string(rp(pLab));   newMode = string(rp(nLab));
     pVd = rp(pVd);   pTh = rp(pTh);   pTilt = rp(pTilt);   pRev = rp(pRev);
     refMode = strings(cfg.paperNY, pnX);
     for iy = 1:cfg.paperNY
@@ -590,10 +625,11 @@ if cfg.runPaperGrid
     agreeFrac = sum(fam(valid) == refMode(valid)) / max(nnz(valid),1);
     % six-part classifier: the tracked agreement, non-physical fraction, tilt
     paperTrack = summarizeModeGrid(newMode, pTilt, pRev, refMode);
-    fprintf('  %d cells in %.0f s -- agreement %.0f%% (six-part), %.0f%% (paper-vocab)\n', ...
+    fprintf(['  %d cells in %.0f s -- agreement %.0f%% (six-part, of record), ' ...
+             '%.0f%% (paper-vocabulary classifier, cross-check)\n'], ...
             pTot, toc(tP), 100*paperTrack.paperAgreeFrac, 100*agreeFrac);
     save(fullfile(runDir,'paper_mode_grid_3D.mat'), 'xaGrid','ybGrid','newMode','paperMode', ...
-         'ourMode','refMode','pVd','pTh','pTilt','pRev','agreeFrac','paperTrack', ...
+         'refMode','pVd','pTh','pTilt','pRev','agreeFrac','paperTrack', ...
          'pcfg','pinfo','effSwitches');
     % At-a-glance comparison: ours (six-part), ours mapped to their families with
     % disagreements outlined in red, and the digitised Fig. 2a.
@@ -607,8 +643,15 @@ if cfg.runPaperGrid
     summary(end+1) = "";
     summary(end+1) = "PAPER GRID -- six-part classifier vs digitised Fig. 2a";
     summary = [summary(:); paperTrack.lines];
-    summary(end+1) = sprintf('  (paper-vocabulary classifier, for continuity: %.0f%% agreement)', ...
+    summary(end+1) = sprintf(['  AGREEMENT: six-part (of record) %.1f%%  |  paper-vocabulary ' ...
+                              'classifier (cross-check) %.1f%%'], 100*paperTrack.paperAgreeFrac, ...
                              100*agreeFrac);
+    % Where the two scorings part company: each one against the other and against
+    % the digitised map (the paper-vocab ST is split into CST/SST in the first).
+    summary = [summary(:); ...
+        crossTabLines(newMode, paperMode, 'six-part (rows) x paper-vocabulary (cols)'); ...
+        crossTabLines(fam,     refMode,   'paper-vocabulary family (rows) x Fig. 2a (cols)'); ...
+        crossTabLines(newMode, refMode,   'six-part (rows) x Fig. 2a (cols)')];
     summary(end+1) = "  OURS (six-part codes)  THEIRS (A=AR T=ST X=CH F=FA)";
     for iy = cfg.paperNY:-1:1
         ro = blanks(pnX);  rr = blanks(pnX);
@@ -628,9 +671,14 @@ end
 %% 8b. Tracked numbers -- this run's file, plus one row in the running history
 % tracking_3D.txt holds this run's numbers; tracking_history_3D.csv (in outPath)
 % gets one row per run, so physics changes can be compared over time.
-if ~isempty(gridTrack) || ~isempty(paperTrack)
+if ~isempty(gridTrack) || ~isempty(paperTrack) || cfg.runRegression
     tr = strings(0,1);
-    tr(end+1) = sprintf('3D test suite tracking  %s  git %s  label=%s', timestamp, gh, cfg.label);
+    tr(end+1) = sprintf('3D test suite tracking  %s  git %s  label=%s  profile=%s', ...
+                        timestamp, gh, cfg.label, lower(cfg.profile));
+    if cfg.runRegression
+        tr(end+1) = sprintf('regression: %d/%d pass, %d warn', regress.nPass, regress.nTotal, ...
+                            regress.nWarn);
+    end
     tr(end+1) = sprintf('physics: edgeDrag %d, rate %d, moment %d, LEV %d', ...
         effSwitches.enableEdgeDrag, effSwitches.enableAddedMassRate, ...
         effSwitches.enableAddedMassMoment, effSwitches.enableLEV);
@@ -639,11 +687,12 @@ if ~isempty(gridTrack) || ~isempty(paperTrack)
     fid = fopen(fullfile(runDir,'tracking_3D.txt'), 'w');
     fprintf(fid, '%s\n', tr);   fclose(fid);
 
-    row = table(string(timestamp), string(gh), string(cfg.label), ...
+    row = table(string(timestamp), string(gh), string(cfg.label), string(lower(cfg.profile)), ...
         effSwitches.enableEdgeDrag, effSwitches.enableAddedMassRate, ...
         effSwitches.enableAddedMassMoment, effSwitches.enableLEV, ...
-        'VariableNames', {'timestamp','git','label','edgeDrag','addedMassRate', ...
-                          'addedMassMoment','LEV'});
+        regress.nPass, regress.nTotal, regress.nWarn, ...
+        'VariableNames', {'timestamp','git','label','profile','edgeDrag','addedMassRate', ...
+                          'addedMassMoment','LEV','regress_pass','regress_total','regress_warn'});
     if ~isempty(gridTrack)
         row.grid_cells = gridTrack.nValid;            row.grid_nonPhysical = gridTrack.nonPhysicalFrac;
         row.grid_revolverFrac = gridTrack.revolverFrac; row.grid_tiltMedian = gridTrack.tiltMedian;
@@ -660,18 +709,14 @@ if ~isempty(gridTrack) || ~isempty(paperTrack)
         row.paper_agreement = NaN;  row.paper_agreementPaperVocab = NaN;
         row.paper_nonPhysical = NaN;  row.paper_tiltMedian = NaN;  row.paper_flatRevolverFrac = NaN;
     end
-    if isfile(cfg.trackingFile)
-        writetable(row, cfg.trackingFile, 'WriteMode', 'append', 'WriteVariableNames', false);
-    else
-        writetable(row, cfg.trackingFile);
-    end
+    appendTrackingRow(cfg.trackingFile, row);    % merges new columns into the history
     fprintf('tracked numbers -> %s (+1 row in %s)\n', fullfile(runDir,'tracking_3D.txt'), ...
             cfg.trackingFile);
 end
 
 %% 9. Manifest + summary
 save(fullfile(runDir,'manifest_3D.mat'), 'cfg', 'sw', 'effSwitches', 'timestamp', 'gh', ...
-     'gridTrack', 'paperTrack');
+     'gridTrack', 'paperTrack', 'regress');
 fid = fopen(fullfile(runDir,'summary_3D.txt'), 'w');
 for k = 1:numel(summary);  fprintf(fid, '%s\n', summary(k));  end
 fclose(fid);

@@ -8,7 +8,7 @@ function fig = plotPaperComparison(xaGrid, ybGrid, newMode, refMode, track, ttl)
 %      grey and labels with no paper equivalent light grey; both count as
 %      disagreements. Every cell that disagrees with panel 3 has a RED outline.
 %   3. THEIRS -- the digitised reference (paperModeReference), same family colours.
-% Panels 2 and 3 use the family palette of reportPaperModeGrid, so the two maps
+% Panels 2 and 3 use the family palette of the (archived) reportPaperModeGrid, so the two maps
 % are directly comparable by colour.
 %
 % INPUTS

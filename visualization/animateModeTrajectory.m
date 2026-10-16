@@ -21,9 +21,10 @@ function animateModeTrajectory(t, x, opts)
 % To actually resolve a fast spin, raise .fps (more/ smoother frames) and drop
 % .playbackSpeed below 1 (slow motion) -- see the frame-rate options below.
 %
-% The mode label per instant comes from classifyModeTimeline (a sliding-window
-% application of the same classifier used everywhere else), so the colours match
-% the phase map and the rest of the toolchain. Works on any trajectory; nothing
+% The mode label per instant comes from classifySeedModeTimeline (a sliding-window
+% application of the six-part classifier used everywhere else), so the colours
+% match the phase maps and seedModePalette. Pass the WHOLE-run label in
+% .modeLabel to show it in the title as well. Works on any trajectory; nothing
 % here is specific to the moving-CoM test.
 %
 % INPUTS
@@ -49,12 +50,16 @@ function animateModeTrajectory(t, x, opts)
 %     .eventLabels  cellstr matching eventTimes (optional)       (default {})
 %     .lineWidth    trajectory line width                        (default 2)
 %     .dotSize      moving-marker size (points^2 for the dots)   (default 90)
-%     .modeOpts     struct forwarded to classifyModeTimeline     (default struct())
-%     .modeTimeline precomputed classifyModeTimeline output; skips reclassifying
-%                   (default [] -> computed here)
+%     .modeOpts     struct forwarded to classifySeedModeTimeline (default struct());
+%                   its .spanLength defaults to the seed's span when seedParams
+%                   is given
+%     .modeTimeline precomputed classifySeedModeTimeline output; skips
+%                   reclassifying                    (default [] -> computed here)
+%     .modeLabel    whole-run six-part label (e.g. 'autorotation [none/tight/..]'),
+%                   appended to the title unless blind              (default '')
 %     .trailOnly    true -> paths grow with the dot (past only); false -> full
 %                   path shown from the start                    (default false)
-%     .seedParams   full seedParams (from setupSeedShapeAndMass). When given, the
+%     .seedParams   full seedParams (from buildSeedParams). When given, the
 %                   top-middle panel shows the CoM's path within the seed body
 %                   using massParams.com_t AND the right panel shows the zoomed
 %                   seed follow-cam; without it, the top panel shows the inertial
@@ -90,6 +95,7 @@ opts = setDefault(opts, 'lineWidth',     2);
 opts = setDefault(opts, 'dotSize',       90);
 opts = setDefault(opts, 'modeOpts',      struct());
 opts = setDefault(opts, 'modeTimeline',  []);
+opts = setDefault(opts, 'modeLabel',     '');
 opts = setDefault(opts, 'trailOnly',     false);
 opts = setDefault(opts, 'seedParams',    []);    % enables the body-frame CoM + zoomed seed panels
 opts = setDefault(opts, 'seedZoom',      1.5);   % zoomed-view half-window = seedZoom * longest seed dim
@@ -124,7 +130,11 @@ if opts.blind
     tl = struct('idx', ones(numel(t), 1), 'list', {{'trajectory'}}, ...
                 'col', [0.15 0.35 0.75]);
 elseif isempty(opts.modeTimeline)
-    tl = classifyModeTimeline(t, x, opts.modeOpts);
+    mo = opts.modeOpts;
+    if ~isfield(mo, 'spanLength') && ~isempty(opts.seedParams)
+        mo.spanLength = sum(opts.seedParams.strips.dz);   % arc length = the span
+    end
+    tl = classifySeedModeTimeline(t, x, mo);
 else
     tl = opts.modeTimeline;
 end
@@ -209,8 +219,12 @@ if bodyMode
 else
     tlo = tiledlayout(fig, 1, 2, 'TileSpacing', 'compact', 'Padding', 'compact');
 end
-if ~isempty(opts.title)
-    title(tlo, opts.title, 'FontWeight', 'bold', 'Interpreter', 'none');
+figTitle = opts.title;
+if ~opts.blind && ~isempty(opts.modeLabel)
+    figTitle = strtrim(sprintf('%s   [%s]', figTitle, opts.modeLabel));
+end
+if ~isempty(figTitle)
+    title(tlo, figTitle, 'FontWeight', 'bold', 'Interpreter', 'none');
 end
 
 % --- LEFT: 3D trajectory, coloured by mode ------------------------------

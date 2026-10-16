@@ -24,9 +24,8 @@
 %                GRID in <grid folder>/mode_grid_picks/, with a picks_log.csv
 %                recording each pick (cell, label, parts, video).
 %
-% For grids labelled by the six-part classifier (the 3D suite's mode_grid_3D.mat),
-% videos are BLIND (no mode colouring from the older classifier, which would
-% contradict the label) and titled with the grid's six-part label and parts.
+% Videos are coloured by the six-part classifier over time (classifySeedModeTimeline)
+% and titled with the grid cell's six-part label and parts.
 %
 % Body axes: x = chord, y = normal, z = span.
 
@@ -57,14 +56,14 @@ fprintf('Grid: %s\n', resultsFile);
 D = load(resultsFile);
 cfg = D.cfg;   chordFrac = D.chordFrac;   spanFrac = D.spanFrac;   modeIdx = D.modeIdx;
 [Nz, Nx] = size(modeIdx);          % Nz span rows, Nx chord cols
-% A grid saved with its own vocabulary (the 3D suite saves the six-part
-% classifier's modeList/modeCol) is drawn with it; older grids use the original
-% classifyFlightMode palette.
-if isfield(D, 'modeList') && isfield(D, 'modeCol')
-    modeList = D.modeList;   modeCol = D.modeCol;
-else
-    [modeList, modeCol] = seedModeColors();
+% The grid carries its own vocabulary: the 3D suite saves the six-part
+% classifier's modeList/modeCol. Grids from before that (labelled by the archived
+% classifyFlightMode) are not supported.
+if ~(isfield(D, 'modeList') && isfield(D, 'modeCol'))
+    error('pickModeGridRuns:oldGrid', ['%s has no modeList/modeCol: it predates the ' ...
+          'six-part classifier. Regenerate it with runSeedTestSuite3D (stage E).'], resultsFile);
 end
+modeList = D.modeList;   modeCol = D.modeCol;
 
 % Release condition + base seed -- reconstruct EXACTLY what the grid ran. Use the
 % saved release if present (newer grids), else the grid's default pi/6-about-z.
@@ -147,7 +146,7 @@ end
 % =========================================================================
 function animateGridRun(iz, ix, D, baseBsp, q0, omega0, outputFolder, animOpts)
     cfg = D.cfg;   c = cfg.chordLength;   S = cfg.spanLength;
-    if isfield(D, 'modeList'); modeList = D.modeList; else; [modeList, ~] = seedModeColors(); end
+    modeList = D.modeList;
 
     % Rebuild the seed at this nut position and integrate (same as the grid).
     bsp = baseBsp;
@@ -165,21 +164,15 @@ function animateGridRun(iz, ix, D, baseBsp, q0, omega0, outputFolder, animOpts)
     [t, x] = ode45(@(tt,xx) rhs(tt, xx, sp), cfg.tspan, x0, odeOpts);
 
     lbl = modeList{D.modeIdx(iz,ix)};
-    sixPart = isfield(D, 'partsGrid');            % labelled by classifySeedMode
     parts = '';
-    if sixPart; parts = char(D.partsGrid(iz,ix)); end
+    if isfield(D, 'partsGrid'); parts = char(D.partsGrid(iz,ix)); end
     tag = sprintf('chord%03.0f_span%03.0f_%s', 100*D.chordFrac(ix), 100*D.spanFrac(iz), lbl);
     vfile = fullfile(outputFolder, [matlab.lang.makeValidName(tag) '.mp4']);
-    ttl = sprintf('nut chord=%.2fc  span=%.2fS   (grid mode: %s)', ...
-                  D.chordFrac(ix), D.spanFrac(iz), lbl);
-    if sixPart; ttl = sprintf('%s  [%s]', ttl, parts); end
+    ttl = sprintf('nut chord=%.2fc  span=%.2fS   (grid mode)', D.chordFrac(ix), D.spanFrac(iz));
 
     o = animOpts;   o.videoFile = char(vfile);   o.title = ttl;   o.seedParams = sp;
-    if sixPart
-        % no colouring by the older classifier's timeline -- it would contradict
-        % the six-part label in the title; the ground track shows any revolution
-        o.blind = true;   o.topPanel = 'groundTrack';
-    end
+    o.modeLabel = sprintf('%s [%s]', lbl, parts);
+    o.topPanel  = 'groundTrack';                  % a fixed nut: the helix shows here
     try
         animateModeTrajectory(t, x, o);
         close(gcf);

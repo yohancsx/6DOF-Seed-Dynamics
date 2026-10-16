@@ -19,12 +19,25 @@ justified as possible.
 
 ## Current state (October 2026)
 
-There are **two models** sharing one rigid-body core:
+There is **one model**, `shape3d` (builder `setupSeedShape3D`, right-hand side
+`seed6DOFODE3D`):
 
-| model | builder / RHS | status |
-|---|---|---|
-| `planar` | `setupSeedShapeAndMass` / `seed6DOFODE` | **Frozen reference.** Flat seed. Reproduces all seven reference modes, but only with four empirical whole-seed terms (span force, span torque with migrating CoP, `Tx`, `Ty`) carrying tuned constants. Kept byte-identical so every earlier run stays comparable. |
-| `shape3d` | `setupSeedShape3D` / `seed6DOFODE3D` | **Active model.** Spanwise twist and curvature; the empirical whole-seed terms removed; first-principles added mass (Kirchhoff's pair) and tip edge drag on by default; LEV lift available but off. |
+- spanwise twist and curvature;
+- no empirical whole-seed terms;
+- first-principles added mass (Kirchhoff's pair) and tip edge drag, both on by default;
+- LEV lift available but off.
+
+Flown in the plane it reproduces Olivia's published 2D model `minimal_imp` exactly for a
+CoM-centred plate (`testMinimalImpEquivalence`). With the CoM off-centre the aero terms still
+match, but the equations of motion don't yet: a missing added-mass coupling, now on the
+roadmap.
+
+**The planar model is archived** (2026-10-15) in [`archive/planar/`](archive/planar), with
+the git tag `planar-final` marking the last commit where it was live. It reproduced the seven
+reference modes, but only with four empirical whole-seed terms (span force, span torque with a
+migrating CoP, `Tx`, `Ty`) carrying tuned constants. Its final record (the seven modes, its
+mode grid and its test suite) is in `model_test_results/planar_final_c2d1116/`. The 3D
+model's core is still checked against it, bit for bit (`testShape3DFlatEquivalence`).
 
 Flight modes are labelled by the **six-part classifier** (`classifySeedMode`, definitions in
 [`MODE_DEFINITIONS.md`](testing/classifier/MODE_DEFINITIONS.md)), built from a by-eye
@@ -65,9 +78,9 @@ which is the first target of the virtual wind tunnel ([roadmap](#roadmap), step 
   - `omega`: angular velocity, **body** frame
 - Translation is solved in the inertial frame and rotation in the body frame. Everything is
   referenced to the centre of mass.
-- **Model selection:** `cfg.shapeModel = 'planar'` (default) or `'shape3d'`. Pass it to
-  `testing/helpers/buildSeedParams.m`; `testing/helpers/seedRHS.m` then returns the matching
-  right-hand side.
+- **Building and integrating a seed:** `testing/helpers/buildSeedParams.m` builds it
+  (`cfg.shapeModel` is `'shape3d'`, the default; `'planar'` is an error since the archive),
+  and `testing/helpers/seedRHS.m` returns its right-hand side.
 
 ---
 
@@ -75,28 +88,25 @@ which is the first target of the virtual wind tunnel ([roadmap](#roadmap), step 
 
 ```
 6DOF Seed Dynamics/
-├── Seed_Dynamics_ODE_Test.m       ← START HERE: a single drop, planar model
-├── Seed_Dynamics_ODE_Test_3D.m    a single drop, shape3d model (+ twist/curvature, metrics)
+├── Seed_Dynamics_ODE_Test_3D.m    ← START HERE: a single drop (+ twist/curvature, metrics, label)
 ├── seedPaths.m                    puts the code on the path; returns the output folders
 ├── README.md                      what the code is
 ├── RESEARCH_LOG.md                how it got here: phases, results, decisions
-├── physics/                       planar model + the shared, shape-agnostic core
-│   ├── seed6DOFODE.m              planar ODE right-hand side
-│   ├── rigidBody6DOF.m            SHARED 6-DOF core: EOM, added-mass rate + moment, quaternions
-│   ├── setupSeedShapeAndMass.m    planar builder: strips, CoM(t), inertia(t), planar switches
-│   ├── validateSeedParams.m       the seed-model contract ('planar' | 'shape3d')
+├── physics/                       the shape-agnostic core
+│   ├── rigidBody6DOF.m            6-DOF core: EOM, added-mass rate + moment, quaternions
+│   ├── validateSeedParams.m       the seed-model contract ('shape3d')
 │   ├── translationDynamics.m      CoM linear acceleration (inertial frame, with added mass)
 │   ├── rotationDynamics.m         angular acceleration (modified Euler, body frame)
 │   ├── aero/
 │   │   ├── computeAeroCoeffs.m    APW coefficients CT, CD, l_cp, CR ... vs angle of attack
 │   │   ├── computeStripForces.m   per-strip lift + drag + rotational lift
 │   │   ├── computeAngleOfAttack.m, computeStripCoP.m
-│   │   ├── stripSpinDamping.m     spanwise-axis spin damping per strip (Tr) — both models
-│   │   └── computeSpanForce.m, spanSpinDamping.m (Tx), normalSpinDamping.m (Ty) — planar only
+│   │   └── stripSpinDamping.m     spanwise-axis spin damping per strip (Tr)
 │   ├── mass/                      getMassProperties.m, getAddedMass.m
 │   └── helpers/                   quaternion math, per-strip velocity, Euler conversion
 ├── physics3d/                     the shape3d model
-│   ├── setupSeedShape3D.m         builder: twist θ(s), curvature φ(s), 3D mass/inertia, switches
+│   ├── setupSeedShape3D.m         builder: strips, twist θ(s), curvature φ(s), 3D mass, switches
+│   ├── slicePlanform.m            the flat planform -> strips + flat-plate mass properties
 │   ├── seed6DOFODE3D.m            right-hand side (per-strip local frames)
 │   ├── computeEdgeDrag.m          tip crossflow (edge) drag
 │   ├── computeLEVForce.m          LEV vortex lift with the Rossby gate
@@ -104,19 +114,20 @@ which is the first target of the virtual wind tunnel ([roadmap](#roadmap), step 
 ├── visualization/                 visualizeSeedTrajectory, visualizeSeedShape, animateSeed,
 │                                  animateModeTrajectory, visualizeSeedLocalVels
 ├── testing/
+│   ├── runRegressionTests.m       every pass/fail regression test, in one call
 │   ├── helpers/                   shared machinery (buildSeedParams, seedRHS, metrics, classifiers, …)
-│   ├── planar/                    planar suites (+ planar/inputs/ tuned configs)
-│   ├── shape3d/                   3D suites, the paper comparison, the 3D regressions
-│   ├── classifier/                classifier review set builder + MODE_DEFINITIONS.md
-│   ├── baselines/                 snapshot generation and model diffing
-│   └── archive/                   retired scripts (Spinning_Seed_Dynamics_Test.mlx)
-├── model_test_results/            baseline snapshots land here (outputs are git-ignored)
+│   ├── shape3d/                   the one-click suite (runSeedTestSuite3D) + the regression tests
+│   ├── classifier/                classifier review tools, the mode gallery, MODE_DEFINITIONS.md
+│   ├── tools/                     pickModeGridRuns (click a grid cell, watch the flight)
+│   └── archive/                   retired: the old classifier, duplicate stage scripts, the .mlx
+├── archive/planar/                the archived planar model: physics, its suites, its baselines
+├── model_test_results/            every suite / regression output lands here (git-ignored)
 ├── derivations/                   seed6DOF_physics.tex/.pdf, seed3D_physics.tex (see note)
 └── Olivia Code/                   minimal_imp.m, minimal_imp_Commented.m (the 2D reference)
 ```
 
 > **Derivations note.** Both `.tex` files predate the `shape3d` model and describe the
-> original strip model, which is now `planar`. `seed3D_physics.tex` means "the 2D model lifted
+> original strip model, which is now the archived `planar` model. `seed3D_physics.tex` means "the 2D model lifted
 > to 3D", not `physics3d/`. The `shape3d` physics is documented in code headers and in the
 > research log until the derivation pass (roadmap).
 
@@ -126,42 +137,35 @@ which is the first target of the virtual wind tunnel ([roadmap](#roadmap), step 
 
 | File | Role |
 |---|---|
-| **[`Olivia Code/minimal_imp_Commented.m`](Olivia%20Code/minimal_imp_Commented.m)** | The **2D reference model** (Andersen–Pesavento–Wang / Pomerenk–Ristroph falling plate). The source of every sectional coefficient in both models. |
+| **[`Olivia Code/minimal_imp_Commented.m`](Olivia%20Code/minimal_imp_Commented.m)** | The **2D reference model** (Andersen–Pesavento–Wang / Pomerenk–Ristroph falling plate). The source of every sectional coefficient in the model. |
 | **[`physics/rigidBody6DOF.m`](physics/rigidBody6DOF.m)** | The **shared rigid-body core**. It adds gravity, solves translation (with added mass) and modified-Euler rotation, and integrates the quaternion. It also holds both halves of Kirchhoff's added-mass pair, each behind a switch: the rate term `Ȧv` and the Munk moment `v × (A·v)`. |
 | **[`physics3d/seed6DOFODE3D.m`](physics3d/seed6DOFODE3D.m)** | The **active right-hand side**. Runs the 2D APW strip aerodynamics in each strip's own frame, plus edge drag and (optionally) LEV. |
-| **[`physics3d/setupSeedShape3D.m`](physics3d/setupSeedShape3D.m)** | The **shape3d builder**: twist and curvature profiles, per-strip frames, curvature-correct mass/inertia, the shape3d switch defaults. It strips the planar-only switches. |
-| **[`physics/seed6DOFODE.m`](physics/seed6DOFODE.m)** | The **frozen planar right-hand side**, including the empirical whole-seed terms. |
-| **[`physics/aero/computeAeroCoeffs.m`](physics/aero/computeAeroCoeffs.m)** | APW coefficients vs angle of attack, with the attached↔separated blend and three angle branches. A direct port of the 2D laws. Also holds the planar tuning constants (`C_span`, `C_span_torque`, `C_Tx`, `C_fy`, `k0_spanTorque`) and the edge-drag coefficient `C_d_edge`. |
-| **[`testing/helpers/buildSeedParams.m`](testing/helpers/buildSeedParams.m)** | Builds a ready-to-run seed for either model, applying explicit switch overrides. It **warns** on a switch the chosen model does not honour instead of silently ignoring it. |
+| **[`physics3d/setupSeedShape3D.m`](physics3d/setupSeedShape3D.m)** | The **builder**, in four steps: strips and flat mass (`slicePlanform`), twist and curvature frames, curvature-correct mass/inertia, the switch defaults. |
+| **[`physics/aero/computeAeroCoeffs.m`](physics/aero/computeAeroCoeffs.m)** | APW coefficients vs angle of attack, with the attached↔separated blend and three angle branches. A direct port of the 2D laws, plus the edge-drag coefficient `C_d_edge`. |
+| **[`testing/helpers/buildSeedParams.m`](testing/helpers/buildSeedParams.m)** | Builds a ready-to-run seed, applying explicit switch overrides. It **warns** on a switch of the archived planar model instead of silently ignoring it. |
 
 ---
 
 ## Physics switches and defaults
 
-Set a switch through `cfg` (via `buildSeedParams`) or directly on `seedParams`. The builders
-own the defaults.
+Set a switch through `cfg` (via `buildSeedParams`) or directly on `seedParams`. The builder
+owns the defaults.
 
-| switch | `planar` default | `shape3d` default | term |
-|---|---|---|---|
-| `enableSpanForce` | `true` | — (removed) | whole-seed spanwise force (`computeSpanForce`) |
-| `enableSpanTorque` | `true` | — (removed) | moment of that force at the span CoP |
-| `enableSpanCOPMigration` | `true` | — (removed) | span CoP migrates with spanwise incidence |
-| `enableSpanGeomVelocity` | `false` | — (removed) | sample the span force at the geometric centre with ω×r |
-| `enableSpanTorqueAttenuation` | `false` | — (removed) | reduced-frequency roll-off of the span torque |
-| `enableTxDamping` | `true` | — (removed) | whole-seed roll damping `Tx` |
-| `enableNormalSpinDamping` | `true` | — (removed) | whole-seed normal-axis spin damping `Ty` |
-| `enableAddedMassRate` | `false` | **`true`** | `Ȧv`, translational half of Kirchhoff's pair |
-| `enableAddedMassMoment` | `false` | **`true`** | `v × (A·v)` Munk moment, rotational half |
-| `enableAddedMass3D` | `false` | `false` | full per-strip added-mass tensor from strip normals (meaningful for curved seeds) |
-| `enableEdgeDrag` | — | `true` | tip crossflow drag, `C_d = 1.2` on `t·c̄` |
-| `enableLEV` | — | `false` | LEV vortex lift (Rezgui et al. / Polhamus form) |
-| `levApplicationPoint` | — | `'colocated'` | LEV acts at the APW CoP, or `'forward'` |
-| `lev.rossbyDefinition` | — | `'kinematic'` | LEV gate reads `Ro = |v_ip|/(Ω·c)`, or `'geometric'` `r/c` |
+| switch | default | term |
+|---|---|---|
+| `enableAddedMassRate` | **`true`** | `Ȧv`, translational half of Kirchhoff's pair |
+| `enableAddedMassMoment` | **`true`** | `v × (A·v)` Munk moment, rotational half |
+| `enableAddedMass3D` | `false` | full per-strip added-mass tensor from strip normals (meaningful for curved seeds) |
+| `enableEdgeDrag` | **`true`** | tip crossflow drag, `C_d = 1.2` on `t·c̄` |
+| `enableLEV` | `false` | LEV vortex lift (Rezgui et al. / Polhamus form) |
+| `levApplicationPoint` | `'colocated'` | LEV acts at the APW CoP, or `'forward'` |
+| `lev.rossbyDefinition` | `'kinematic'` | LEV gate reads `Ro = |v_ip|/(Ω·c)`, or `'geometric'` `r/c` |
 
-Planar keeps both added-mass terms off so it stays byte-identical to every earlier run.
-`shape3d` turns them on because both are first-principles and both appear in the APW reference
-(eqs. 6.1–6.3). The LEV constants (`AR`, `Kp`, `Ki`, `Kv`, `RoCrit = 3`, `p = 4`,
-`lambdaV = 0.5`) live on `seedParams.lev` and can be overridden with `cfg.lev`.
+Both added-mass terms are on because both are first-principles and both appear in the APW
+reference (eqs. 6.1–6.3). The LEV constants (`AR`, `Kp`, `Ki`, `Kv`, `RoCrit = 3`, `p = 4`,
+`lambdaV = 0.5`) live on `seedParams.lev` and can be overridden with `cfg.lev`. The archived
+planar model's switches (`enableSpanForce`, `enableSpanTorque`, `enableTxDamping`, …) are
+warned about and ignored.
 
 ---
 
@@ -180,104 +184,91 @@ folders, so the code runs from any clone and any MATLAB current folder:
 | folder | what goes there |
 |---|---|
 | `model_test_results/` (`P.results`, in the repo, git-ignored) | Everything a test suite or regression produces: runs regenerated whenever the model changes. |
-| `Misc Outputs/` (`P.misc`, beside the repo) | One-off studies and tooling: classifier review sets, the mode gallery, LEV exploration, the single-drop harnesses, the standalone twist/curvature/CoM demos, the original paper-grid scripts. |
+| `Misc Outputs/` (`P.misc`, beside the repo) | One-off studies and tooling: classifier review sets, the mode gallery, LEV exploration, the single-drop harness, the paper-case animations. |
 | `Outputs/` (beside the repo) | Reserved for paper and presentation material. No test or study writes there. |
 
 ### Quick start: a single drop
 
-- **Planar:** open and run **[`Seed_Dynamics_ODE_Test.m`](Seed_Dynamics_ODE_Test.m)**. It
-  builds a rectangular seed with `setupSeedShapeAndMass`, integrates with `ode45`, plots the
-  trajectory and Euler angles, and writes an animation.
-- **shape3d:** run **[`Seed_Dynamics_ODE_Test_3D.m`](Seed_Dynamics_ODE_Test_3D.m)**. The same
-  five sections, plus:
-  - `twist` / `curvature` settings;
-  - the shape3d switches in one block (applied through `buildSeedParams`, so a switch this
-    model does not honour warns);
-  - the metrics and mode label printed after the run, so one case can be checked by eye.
+Run **[`Seed_Dynamics_ODE_Test_3D.m`](Seed_Dynamics_ODE_Test_3D.m)**. Five sections: build a
+rectangular seed, check its shape, integrate with `ode45`, plot the trajectory, animate it.
+It also has:
+
+- `twist` / `curvature` settings;
+- the physics switches in one block (applied through `buildSeedParams`);
+- the six-part mode label and its parts printed after the run, so one case can be checked by
+  eye.
+
+(The planar harness `Seed_Dynamics_ODE_Test.m` is archived with the planar model.)
 
 Scripted directly:
 
 ```matlab
 P = seedPaths();                      % from the repo root: code on the path, P.results etc.
 
-cfg = struct('rhoFluid', 1.225, 'g', 9.81, 'shapeModel', 'shape3d');
+cfg = struct('rhoFluid', 1.225, 'g', 9.81);
 sp  = buildSeedParams(bsp, cfg);      % bsp: seedShape, seedDensity, seedThickness,
                                       %      numStrips, tSamples, nutMass_t, nutPos_t
-rhs = seedRHS(sp);                    % -> @seed6DOFODE3D here
+rhs = seedRHS(sp);                    % -> @seed6DOFODE3D
 x0  = [zeros(3,1); [1;0;0;0]; zeros(3,1); zeros(3,1)];   % level, from rest
 [t, x] = ode45(@(t,x) rhs(t,x,sp), [0 5], x0);
 
 visualizeSeedTrajectory(t, x(:,1:3).', x(:,4:7).');
 ```
 
-### Test suites (`testing/`)
+### Testing (`testing/`)
 
-Each script has an editable configuration block at the top.
-
-**shape3d**
-
-| Script | What it does |
-|---|---|
-| `shape3d/runSeedTestSuite3D.m` | **The one-click 3D suite.** Edit the config block and run. Six stages, each switchable:<br>**A. Twist sweep**, released level, one animation per case.<br>**B. Curvature sweep**, bowl and one-sided, one animation per case.<br>**C. The nine 2D-parity groups** (nut mass; nut chord/span/diagonal; pitch; roll; yaw spin; asymmetry; strip convergence), using the same `seedTestCases`/`runOneSeedCase` helpers as the planar suite.<br>**D. Three moving-CoM scenarios**, animated.<br>**E. Mode grid** on our seed under the 3D model.<br>**F. Hou et al. comparison** (on by default).<br>Mode labels come from the six-part classifier (`classifySeedMode`), with the older label kept in brackets. Stages E and F report the **tracked numbers**: paper agreement, non-physical fraction, and the span tilt of revolvers. They go to `tracking_3D.txt` in the run folder, plus one row per run in `tracking_history_3D.csv` beside the run folders.<br>Physics overrides go in the `sw` struct. Stage F also writes `paper_comparison_3D.png`: ours, ours mapped to the paper's families with disagreements outlined in red, and the digitised Fig. 2a.<br>Outputs go under `model_test_results/<timestamp>_<githash>_3D_<label>/` (git-ignored). |
-| `shape3d/runTwistSuite.m`, `runTwistTest.m` | Twist sweep (both-ends and single-side) with spin report; three twisted-seed animations. |
-| `shape3d/runCurvatureSuite.m`, `runCurvatureTest.m` | Curvature sweep (bowl and single-side) reporting descent, cone, spin and out-of-plane CoM shift, with a flat reference row; three curved-seed animations. |
-| `shape3d/exploreLEVTerm.m` | Plots the implemented LEV term against α and Rossby number, the gate, and the two application points; prints this seed's constants. |
-
-**Paper comparison — Hou et al. (2025)**
+**After any change, run the suite.** `shape3d/runSeedTestSuite3D.m` is the single
+every-change entry point. Edit its config block and run it, and every output is regenerated in
+one timestamped, git-stamped folder under `model_test_results/`.
 
 | Script | What it does |
 |---|---|
-| `shape3d/runPaperAnchorCases.m` | The five configurations the paper publishes kinematics for, on their plate and release, reported against their numbers. |
-| `shape3d/runPaperModeGrid.m` | Mode map over their parameter window (`x_c/a ≤ 0.416`, `y_c/b ≤ 0.208`), both classifiers per cell. Saves before reporting. |
-| `shape3d/reportPaperModeGrid.m` | Reports a saved paper grid: ASCII maps, agreement with the digitised Fig. 2a, a cross-tab, and a figure. |
-| `shape3d/animatePaperCases.m` | Animates the anchors and two boundary cells, to check labels by eye. |
+| `shape3d/runSeedTestSuite3D.m` | **The one-click suite.** Stages, each switchable:<br>**0. Regression tests** (`runRegressionTests`). Always run first. They **only ever warn**: a failure goes at the top of `summary_3D.txt` and the run carries on.<br>**A. Twist sweep**, released level, one animation per case.<br>**B. Curvature sweep**, bowl and one-sided, one animation per case.<br>**C. The nine 2D-parity groups** (nut mass; nut chord/span/diagonal; pitch; roll; yaw spin; asymmetry; strip convergence), via `seedTestCases`/`runOneSeedCase`.<br>**D. Three moving-CoM scenarios**, animated.<br>**E. Mode grid** on our seed.<br>**F. Hou et al. comparison**: their five anchors and their phase map, scored two ways. The six-part labels mapped to the paper's families are the agreement of record. The paper-vocabulary classifier (`classifyPaperMode`, their own definitions) is the cross-check. A three-way cross-tab shows where the two disagree. `paper_comparison_3D.png` puts ours beside the digitised Fig. 2a, with disagreements outlined in red.<br>**Profiles:** `cfg.profile = 'full'` (everything, with videos: the baselines) or `'quick'` (no videos, coarse grids and sweeps, the same physics and run lengths). Quick and full numbers are not comparable.<br>**Tracked numbers:** regression pass count, paper agreement (both scorings), non-physical fraction, revolver span tilt. They go to `tracking_3D.txt`, plus one row per run merged into `tracking_history_3D.csv` (`helpers/appendTrackingRow.m`, which adds new columns safely).<br>Animations are coloured by the six-part label over time, with the run's label in the title.<br>Physics overrides go in the `sw` struct. Outputs: `model_test_results/<timestamp>_<githash>_3D_<label>_<profile>/` (git-ignored). |
+| `tools/pickModeGridRuns.m` | Click cells on a saved mode grid and animate them.<br>• **By default it opens the newest `model_test_results/*_3D_*/mode_grid_3D.mat`.** Set `resultsFile` to open any other.<br>• **Videos are written next to the grid**, in `mode_grid_picks/`, with a `picks_log.csv`, coloured by the six-part timeline and titled with the cell's label and parts. |
+| `shape3d/exploreLEVTerm.m` | One-off: plots the implemented LEV term against α and Rossby number, the gate, and the two application points; prints this seed's constants. |
+| `shape3d/animatePaperCases.m` | One-off: animates the paper anchors and two boundary cells, to check labels by eye. |
+
+**Regression tests.** `runRegressionTests.m` runs them all in about 35 s. Each returns
+pass/fail per check and can also be run on its own.
+
+| Script | What it checks |
+|---|---|
+| `shape3d/testMinimalImpEquivalence.m` | **The primary flat test.** The 3D model flown in the plane against Olivia's published 2D model, whose `Model` function is extracted verbatim from `minimal_imp.m` at run time. For a CoM-centred plate: the equations of motion over 500 random states (to 1e-14) and a 5 s trajectory (identical). At a CoM offset: the aerodynamic force and torque (exact), and the full equations and trajectory. The latter two **WARN**, because of the missing added-mass coupling (roadmap). |
+| `shape3d/testShape3DFlatEquivalence.m` | For a flat seed, the 3D model reduces **bit-identically** to the archived planar model over the shared core (each model's extras switched off), and must *differ* at full defaults. |
+| `shape3d/testCurvedMassProperties.m` | Curved-seed mass/inertia: analytic check, reduction to the planar builder, bowl sanity, toggles. |
+| `shape3d/testNewPhysicsTerms.m` | The phase-4/5 terms: added-mass rate (A-checks, incl. equivalence to Kirchhoff's body-frame form), Munk moment (M-checks, incl. the 2D limit vs APW eq. 6.3), edge drag, and LEV (constants, both Rossby gates, application points, RHS wiring, `cfg.lev` overrides). |
+| `shape3d/testPaperMetrics.m` | The paper metrics and both classifiers on **synthetic** motion with known answers (17 cases), including the tilted-revolution trap. |
+| `shape3d/testActivePathClean.m` | No active code calls archived code. The archived names are read from the archive folders, so archiving a file extends the check automatically. |
+| `shape3d/testRefactorInvariance.m` | **For refactors only**, not in the runner: `'capture'` pins built seeds, RHS samples and 12 trajectories bit for bit; `'compare'` checks the code against them. An intended physics change fails it by design. |
 
 **Classifier review** (roadmap step 1)
 
 | File | What it does |
 |---|---|
-| `classifier/buildClassifierReviewSet.m` | Builds a by-eye labelling set: a coarse nut-position grid on our seed under **both** models, with run IDs shuffled so neither model nor position shows. For each run it writes:<br>• a **blind** animation (no mode colours or labels);<br>• a static summary (whole flight, attitude, cumulative rotation, rates);<br>• the raw trajectory.<br>It also writes `classifier_review.xlsx`: eye-label columns first, then the current code's labels, a blank `label_new` column, metrics, and the vocabulary. Output goes to a new timestamped folder under `Misc Outputs/Classifier Review/` (beside the repo), so a labelled sheet is never overwritten. |
+| `classifier/buildClassifierReviewSet.m` | Builds a by-eye labelling set: a coarse nut-position grid on our seed under **both** models (it loads the archived planar model and old classifier for that), with run IDs shuffled so neither model nor position shows. For each run it writes:<br>• a **blind** animation (no mode colours or labels);<br>• a static summary (whole flight, attitude, cumulative rotation, rates);<br>• the raw trajectory.<br>It also writes `classifier_review.xlsx`: eye-label columns first, then the code's labels, a blank `label_new` column, metrics, and the vocabulary. Output goes to a new timestamped folder under `Misc Outputs/Classifier Review/` (beside the repo), so a labelled sheet is never overwritten. |
 | `classifier/buildRelabelSheet.m` | Turns a labelled review set into a second-pass sheet with **one dropdown per classifier part**, without re-simulating:<br>• pre-filled from the first-pass labels, with only the parts each label actually states;<br>• `name_from_parts` (the classifier's rules applied to your parts) and a `MISMATCH` check;<br>• the code's answers grouped and collapsed.<br>Writes `classifier_review_v2.xlsx` next to the first pass and never modifies it. Needs Excel (driven via `actxserver`). |
-| `classifier/makeModeExamples.m` | **A visual dictionary of the modes.** One idealized animation + still per mode name, plus an `INDEX.md` explaining each, written to `Misc Outputs/Mode Examples/` (beside the repo). The examples are **synthetic** (prescribed textbook motion from `helpers/synthSeedMotion.m`, slowed to watchable rates), so every label has one, including modes the model never produces. Each example must classify as its own label before it is rendered. |
-| `classifier/MODE_DEFINITIONS.md` | **The mode definitions**, in words and math. The six parts of the new classifier and every boundary between them, the 17 mode names in order of precedence (also the eye-labelling vocabulary), which modes are non-physical, and the two older classifiers transcribed for comparison. Kept in step with the three files below; add new modes here. |
-| `helpers/classifySeedMode.m`, `defaultSeedModeThresholds.m`, `computeSeedModeMetrics.m` | **The six-part classifier.** It judges six things independently and builds the name from them: flip about the span (from attitude), revolution (from the span heading), span attitude, path, regularity, and physicality. Every boundary lives in the thresholds file, dated where it was decided on the review set. Synthetic regression: cases N1–N9 in `shape3d/testPaperMetrics.m`. |
+| `classifier/makeModeExamples.m` | **A visual dictionary of the modes.** One idealized animation + still per mode name, plus an `INDEX.md` explaining each, written to `Misc Outputs/Mode Examples/` (beside the repo). The examples are **synthetic** (prescribed textbook motion from `helpers/synthSeedMotion.m`, slowed to watchable rates), so every label has one, including modes the model never produces. Each example must classify as its own label, as a whole run and on the time-resolved timeline, before it is rendered. |
+| `classifier/MODE_DEFINITIONS.md` | **The mode definitions**, in words and math. The six parts of the classifier and every boundary between them, the 17 mode names in order of precedence (also the eye-labelling vocabulary), which modes are non-physical, and the two older classifiers transcribed: `classifyFlightMode` (archived) and `classifyPaperMode` (active cross-check). Kept in step with the files below; add new modes here. |
+| `helpers/classifySeedMode.m`, `defaultSeedModeThresholds.m`, `computeSeedModeMetrics.m`, `classifySeedModeTimeline.m` | **The six-part classifier.** It judges six things independently and builds the name from them: flip about the span (from attitude), revolution (from the span heading), span attitude, path, regularity, and physicality. Every boundary lives in the thresholds file, dated where it was decided on the review set. The timeline version slides it along a run for colouring. Synthetic regression: cases N1–N9 in `shape3d/testPaperMetrics.m`. |
 
-**planar**
+**Archived** (not on the path):
 
-| Script | What it does |
-|---|---|
-| `planar/runSeedTestSuite.m` | Parameter sweeps (nut mass/position, initial tilt/spin, asymmetry, strip convergence); a figure per case and an overlay per group. Writes to `model_test_results/planar_test_suite/`. |
-| `planar/runSeedModeSuite.m` | The seven named modes at their working inputs, each classified. |
-| `planar/runSeedModeGrid.m` | Chord × span nut-position phase map. **Planar only**: it calls `seed6DOFODE` directly (see roadmap). Writes to `model_test_results/planar_mode_grid/`. |
-| `planar/pickModeGridRuns.m` | Click cells on a saved mode grid and animate them.<br>• **By default it opens the newest `model_test_results/*_3D_*/mode_grid_3D.mat`.** Set `resultsFile` to open any other grid.<br>• **Videos are written next to the grid**, in `mode_grid_picks/`, with a `picks_log.csv`.<br>• **Six-part grids get blind videos** titled with the cell's label and parts.<br>• **Model-agnostic:** it re-integrates through `seedRHS`, so planar grids work too. |
-| `planar/runModeAblation.m` | The seven modes under several span-force/`Tx` configurations. Writes to `model_test_results/planar_mode_ablation/`. |
-| `planar/runSpanForceComparison.m` | Four hand-tuned cases isolating the span force, with a torque-budget diagnostic. |
-| `planar/runComMovementTest.m` | Time-varying CoM (the nut slides within the body); a mode animation per scenario. |
-
-**Regression tests**
-
-| Script | What it checks |
-|---|---|
-| `shape3d/testShape3DFlatEquivalence.m` | For a flat seed, the 3D model reduces **bit-identically** to planar over the shared core (each model's extras switched off), and must *differ* at full defaults. |
-| `shape3d/testCurvedMassProperties.m` | Curved-seed mass/inertia: analytic check, planar reduction, bowl sanity, toggles. |
-| `shape3d/testNewPhysicsTerms.m` | The phase-4/5 terms: added-mass rate (A-checks, incl. equivalence to Kirchhoff's body-frame form), Munk moment (M-checks, incl. the 2D limit vs APW eq. 6.3), edge drag, and LEV (constants, both Rossby gates, application points, RHS wiring, `cfg.lev` overrides). |
-| `shape3d/testPaperMetrics.m` | The paper metrics and classifier on **synthetic** motion with known answers (8 cases), including the tilted-revolution trap. |
-
-**Baselines**
-
-| Script | What it does |
-|---|---|
-| `baselines/generateModelBaseline.m` | Timestamped, git-stamped snapshot into `model_test_results/`. It runs these stages:<br>• the coarse mode grid, CoM scenarios and test suite, under **both** models on the same flat seed (`mode_grid/` vs `mode_grid_3d/`, etc.);<br>• a `shape3d/` twist + curvature stage;<br>• the `paper/` comparison (anchors + grid), regenerated every time.<br>It records both models' switch sets. |
-| `baselines/compareBaselineModels.m` | Diffs a snapshot's planar and shape3d stages: mode census, migration table, metric shifts, a changed-cell map. Optionally regression-checks planar against an older snapshot. |
+- `archive/planar/`: the planar model and everything only it used.
+- `testing/archive/legacy_classifier/`: `classifyFlightMode` and its thresholds, timeline and
+  palette.
+- `testing/archive/duplicates/`: the standalone twist, curvature and paper scripts that suite
+  stages A, B and F replaced.
 
 ---
 
-## Reproducing the flight modes (planar model)
+## The archived planar model: how it reproduced the flight modes
 
-The configuration below reproduces the seven reference modes in the **planar** model and is
-its builder default ("FULL-minus-geomVelocity"). It is recorded in
-[`testing/planar/inputs/Working Dynamics Inputs 8-2-26.txt`](testing/planar/inputs/Working%20Dynamics%20Inputs%208-2-26.txt).
-The shape3d model does not use these terms; see the switch table above.
+Kept as a record. The configuration below reproduced the seven reference modes in the
+**planar** model (archived 2026-10-15, git tag `planar-final`) and was its builder default
+("FULL-minus-geomVelocity"). It is recorded in
+[`archive/planar/testing/inputs/Working Dynamics Inputs 8-2-26.txt`](archive/planar/testing/inputs/Working%20Dynamics%20Inputs%208-2-26.txt),
+and its final runs are in `model_test_results/planar_final_c2d1116/`. The active model does
+not use these terms.
 
 **Base seed:**
 
@@ -287,9 +278,11 @@ The shape3d model does not use these terms; see the switch table above.
 - air (`rhoFluid = 1.225`, buoyancy ignored);
 - released from rest for 10 s unless an initial attitude is given.
 
-**Planar switches:** the planar column of the switch table. **Tuned aero constants**
-(`computeAeroCoeffs` defaults): `C_span = 0.2`, `C_span_torque = 0.7`, `C_Tx = 1.0`,
-`C_fy = 1`, `k0_spanTorque = 0.2`. The attenuation is not needed with this tuning.
+**Planar switches:** span force, span torque with CoP migration, `Tx` and `Ty` on; span
+geometric velocity, torque attenuation and both added-mass terms off. **Tuned aero constants**
+(now in `archive/planar/aero/planarAeroConstants.m`): `C_span = 0.2`, `C_span_torque = 0.7`,
+`C_Tx = 1.0`, `C_fy = 1`, `k0_spanTorque = 0.2`. The attenuation was not needed with this
+tuning.
 
 **Mode-eliciting inputs** (`c = chordLength`, `S = spanLength`; `theta0 = [0 0 pi/6]` is a
 π/6 tilt about body `z`):
@@ -311,8 +304,6 @@ The shape3d model does not use these terms; see the switch table above.
 
 ## The model in brief
 
-**Both models**
-
 - **Per strip:**
   - translational lift and drag at the migrating APW centre of pressure;
   - rotational lift at mid-chord;
@@ -323,10 +314,7 @@ The shape3d model does not use these terms; see the switch table above.
   gyroscopic and time-varying-inertia torques.
 - **Omitted:** buoyancy (negligible in air) and the rotational added-inertia rate `Ȧ_rot·ω`.
 
-**planar only.** The empirical whole-seed terms: the span force and its torque at a migrating
-span CoP, `Tx`, `Ty`.
-
-**shape3d only**
+**On top of that:**
 
 - twist and curvature, with each strip's aero in its own frame;
 - curvature-correct mass/inertia;
@@ -486,8 +474,6 @@ never tuning.
   - The steps: relabel the flagged runs (MODE_DEFINITIONS section 3), then score
     `label_new` on a held-out half.
 
-- [ ] `planar/runSeedModeGrid.m` hardcodes `seed6DOFODE` instead of `seedRHS`, so it cannot run
-  the 3D model. The 3D suite's stage E is the 3D grid in the meantime.
 - [ ] Two-point-mass support (`bsp.extraMasses`, shape3d builder only), to carry the paper
   plate's second weight rather than one equivalent nut. That nut is ~1.6× low in long-axis
   inertia at the top of the `y_c/b` range.
@@ -495,8 +481,24 @@ never tuning.
   off-axis.
 - [ ] Re-measure our seed's descent against `sqrt(σg/ρ)` under the current shape3d defaults.
   The old "autorotation descends too fast" bug predates the Kirchhoff defaults.
+- [ ] **Added-mass coupling for an off-centre CoM** (found 2026-10-15 by
+  `shape3d/testMinimalImpEquivalence.m`).
+  - **The gap:** the added mass is attached at the plate's geometric centre, so when the CoM
+    sits off it, translation and rotation couple through the fluid. `minimal_imp` carries
+    this as `−m₂ω²·lcm` and `m₂·lcm·dω/dt` in its body-frame force balance. Our added-mass
+    blocks have no translation–rotation coupling.
+  - **The size of it:** at `lcm = 0.1 cm` on Olivia's plate (in water), the translational
+    equations differ by up to ~1 g. Her trajectory separates from ours after 0.1 s; descent
+    is 16.0 vs 18.4 cm/s and the rotation sense flips. In air it is smaller (`m₂` is ~6% of
+    our seed's mass), but our seeds and the Hou plate sit at large nut offsets.
+  - **Why it belongs:** it is first-principles (the off-diagonal block of Kirchhoff's
+    added-mass matrix about the CoM) and present in the validated reference model.
+  - **Acceptance:** cases E3 and E4 (`lcm ≠ 0`) of `testMinimalImpEquivalence` go from WARN
+    to PASS. The CoM-centred cases E1/E4, already exact, must stay exact.
 - [ ] 2D validation suite vs `minimal_imp`: RHS match at matched states, plus trajectory
-  comparison.
+  comparison. *`testMinimalImpEquivalence.m` does both. The CoM-centred plate is exact (RHS
+  to 1e-14, identical 5 s trajectory) and the aero terms match at any offset; the offset
+  equations of motion wait on the coupling item above.*
 - [ ] Standalone intermediates-recovery helper (rebuild per-strip quantities over a saved
   trajectory; `ode45` discards the RHS's second output).
 - [ ] Validate twist and curvature against real seeds; optionally accept a general YZ polyline
@@ -510,9 +512,6 @@ never tuning.
   - Rename `seed3D_physics.tex` so it cannot be confused with `physics3d/`.
   - Write a `shape3d` derivation. First candidates, since they are settled: twist/curvature
     frames, curved mass properties, edge drag, and Kirchhoff's added-mass pair.
-- [ ] Housekeeping:
-  - Stale code comments: `seed6DOFODE3D.m`'s header and `runPaperAnchorCases.m`'s header still
-    describe the added-mass rate as off.
 
 ### Completed
 
@@ -562,3 +561,5 @@ These were considered and dropped or superseded. Reasons are in the
 - Pruning the planar constants.
 - Fixing the `(π−|α|)` branch quirks.
 - The "combined" two-plane re-discretization (set aside; its problem is revisited by step 3).
+- Making `planar/runSeedModeGrid.m` model-agnostic (it hardcoded `seed6DOFODE`). Moot: it is
+  archived with the planar model, and the suite's stage E is the grid.

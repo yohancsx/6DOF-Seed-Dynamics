@@ -1,14 +1,14 @@
 function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 % SEED6DOFODE3D  Right-hand side of the NON-PLANAR (3D-shape) seed dynamics ODE.
 %
-% Extension of the planar seed6DOFODE to a seed whose strips are NOT confined to
-% the body x-z plane: each strip carries a 3D geometric-centre position AND its
+% Extension of the (now archived) planar seed6DOFODE to a seed whose strips are NOT
+% confined to the body x-z plane: each strip carries a 3D geometric-centre position AND its
 % own orthonormal local frame (chord/normal/span directions) in body coordinates,
 % so twist / camber / dihedral can be represented. The strip aerodynamics are the
 % SAME 2D coefficient laws as the planar model, evaluated in each strip's local
 % (chord, normal) plane and then rotated back to the body frame; the net body
-% force/torque go to the shared rigid-body core (rigidBody6DOF), exactly as in the
-% planar RHS.
+% force/torque go to the rigid-body core (rigidBody6DOF), exactly as in the planar
+% RHS.
 %
 % SCOPE -- WHAT THIS MODEL DELIBERATELY CONTAINS:
 %   Andersen-Pesavento-Wang sectional coefficients  +  strip theory  +  rigid-body
@@ -29,34 +29,42 @@ function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 %     force this code explicitly EXCLUDES from the net force as a double count.
 %     A moment with no corresponding force matches no pressure distribution.
 %   * The tuning constants those terms carried: C_span_torque, k0_spanTorque,
-%     C_Tx, C_fy. They still exist in the shared computeAeroCoeffs (the frozen
-%     planar model reads them); this RHS simply never asks for them.
-% The planar seed6DOFODE keeps all of the above, unchanged, as the frozen
-% reference model. See the README "Model cleanup" roadmap section.
+%     C_Tx, C_fy (and C_span). They were archived with the planar model, in
+%     archive/planar/aero/planarAeroConstants.m.
+% The archived planar seed6DOFODE (archive/planar/physics/, git tag planar-final)
+% keeps all of the above, unchanged, as the reference record.
 %
-% PHASE 4 -- the span force went (it was the only spanwise resistance, with the
-% wrong law), and three terms came in, each behind a switch set by setupSeedShape3D:
-%   * enableEdgeDrag      ON  -- pure drag on a seed sliding along its span, which
+% PHASES 4-5 -- the span force went (it was the only spanwise resistance, with the
+% wrong law), and these terms came in, each behind a switch set by setupSeedShape3D
+% (defaults as there):
+%   * enableEdgeDrag        ON  -- pure drag on a seed sliding along its span, which
 %     the strips cannot see at all (computeEdgeDrag). Section 3b.
-%   * enableAddedMassRate OFF -- the Adot*v term of the translational EOM. Lives in
-%     the shared core, rigidBody6DOF.
-%   * enableLEV           OFF -- leading-edge-vortex vortex lift, per strip, inside
+%   * enableAddedMassRate   ON  -- the Adot*v term of the translational EOM, and
+%   * enableAddedMassMoment ON  -- its rotational partner v x (A v), the Munk moment:
+%     the two halves of Kirchhoff's added-mass pair (APW eqs. 6.1-6.3). Both live in
+%     the rigid-body core, rigidBody6DOF.
+%   * enableLEV             OFF -- leading-edge-vortex vortex lift, per strip, inside
 %     the strip loop (computeLEVForce, constants from levPlanformConstants), with
 %     two modelling switches: levApplicationPoint = 'colocated' | 'forward' chooses
 %     where it acts, and lev.rossbyDefinition = 'kinematic' | 'geometric' chooses
 %     whether the Rossby gate reads the strip's actual revolution rate or just its
 %     distance from the CoM.
 %
-% FLAT EQUIVALENCE: with the planar extras disabled (enableSpanForce,
-% enableTxDamping, enableNormalSpinDamping false on the planar side) and the
-% phase-4 terms disabled here (enableEdgeDrag, enableAddedMassRate, enableLEV
-% false), this still reduces EXACTLY to seed6DOFODE on a flat seed -- see
-% testing/shape3d/testShape3DFlatEquivalence.m.
+% FLAT EQUIVALENCE, two checks:
+%   * against Olivia's published 2D model: flown in the plane with the CoM at the
+%     plate centre, this reproduces minimal_imp exactly (equations and trajectory);
+%     with the CoM off-centre the aero terms still match, the equations of motion
+%     do not yet (no off-centre added-mass coupling; README roadmap) --
+%     testing/shape3d/testMinimalImpEquivalence.m;
+%   * against the archived planar model: with its extras disabled (span force, Tx,
+%     Ty) and the phase-4/5 terms disabled here (edge drag, both added-mass terms,
+%     LEV), this reduces EXACTLY to seed6DOFODE on a flat seed --
+%     testing/shape3d/testShape3DFlatEquivalence.m.
 %
-% Requires the 'shape3d' seedParams contract (see validateSeedParams): the planar
-% strip fields PLUS strips.ygc_body and strips.chordDir/normalDir/spanDir. If a
-% planar seed (no frames) is passed, identity frames + y=0 are assumed, so this
-% function also reproduces the planar model on a planar seed.
+% Requires the 'shape3d' seedParams contract (see validateSeedParams): the flat
+% strip fields PLUS strips.ygc_body and strips.chordDir/normalDir/spanDir. A struct
+% without frames is treated as flat (identity frames, y=0); the planar-core check
+% above relies on that.
 %
 % Optionally returns per-strip intermediate quantities for plotting/debugging
 % (ode45 ignores the second output during integration).

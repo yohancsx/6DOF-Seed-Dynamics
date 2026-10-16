@@ -95,7 +95,7 @@ function [cfg, bsp, toNutPos, info] = paperSeedConfig()
     cfg.odeAbsTol  = 1e-8;
     cfg.metricOpts.windowStartFrac = 0.5;
     cfg.metricOpts.convergeTol     = 0.20;
-    cfg.modeThresholds = defaultModeThresholds();
+    cfg.seedModeThresholds = defaultSeedModeThresholds();
 
     % Release: theta = 0, psi = pi/2 -- long axis horizontal, face vertical.
     cfg.releaseQuat  = axisAngleToQuat([0; 0; 1], pi/2);

@@ -1,55 +1,51 @@
-# Model test results — baseline snapshots
+# Model test results
 
-A record of **what the model does** at a given state of the code/physics, kept as
-a regression baseline. When the model changes, regenerate a snapshot and diff it
-against an earlier one to see what moved.
+A record of **what the model does** at a given state of the code and physics. When the
+model changes, run the suite again and compare the new run folder against an earlier one.
 
-Each snapshot is a timestamped, git-stamped subfolder produced by
-[`testing/baselines/generateModelBaseline.m`](../testing/baselines/generateModelBaseline.m):
+## Suite runs
+
+Every run of [`testing/shape3d/runSeedTestSuite3D.m`](../testing/shape3d/runSeedTestSuite3D.m)
+writes one folder:
 
 ```
 model_test_results/
-  <YYYY-MM-DD_HHMMSS>_<githash>/
-    manifest.txt / manifest.mat   # git commit + dirty flag, MATLAB version, seed
-                                   # geometry, BOTH models' physics switches, aero +
-                                   # classifier settings, every stage's config/inputs
-    mode_grid/     mode_grid_3d/   # coarse flight-mode phase map, planar / shape3d,
-                                   # same flat seed (modeIdx + metrics + .png + ascii)
-    com_movement/  com_movement_3d/  # the 3 moving-CoM scenarios: trajectories,
-                                   # per-dwell mode classification, animations
-    test_suite/    test_suite_3d/  # the sweep battery (per-case .mat/.png, overlays,
-                                   # summary.txt), same as runSeedTestSuite output
-    shape3d/                       # twist + curvature families (shape3d, centred nut)
-    paper/                         # Hou et al. (2025) comparison: the five anchor
-                                   # cases + the mode grid over their window, both
-                                   # classifiers per cell, agreement with Fig. 2a
+  <YYYY-MM-DD_HHMMSS>_<githash>[-dirty]_3D_<label>_<profile>/
+    summary_3D.txt              everything, opening with the regression-test verdict
+    regression_3D.txt / .csv    stage 0: every pass/fail check
+    tracking_3D.txt             this run's tracked numbers
+    twist_3D/  curvature_3D/  com_movement_3D/      stages A, B, D (+ videos, full profile)
+    <group>/                    stage C, the nine sweep groups (.fig/.png/.mat, overlays)
+    mode_grid_3D.mat / .png     stage E, our seed's mode grid
+    mode_grid_picks/            videos made from that grid with testing/tools/pickModeGridRuns.m
+    paper_mode_grid_3D.mat      stage F, the Hou et al. comparison
+    paper_comparison_3D.png     ours vs the digitised Fig. 2a, disagreements outlined
+    manifest_3D.mat             cfg, switches in force, git, tracked structs
+  tracking_history_3D.csv       one row per run (merged, so new columns are safe)
 ```
 
-**3D test-suite baselines** live here too, as
-`<YYYY-MM-DD_HHMMSS>_<githash>_3D_baseline/`. They are full runs of
-[`testing/shape3d/runSeedTestSuite3D.m`](../testing/shape3d/runSeedTestSuite3D.m) at
-builder-default physics: twist, curvature, the 2D-parity sweeps, CoM movement, our-seed
-mode grid and the Hou et al. comparison, all labelled by the six-part classifier. Each
-contains `summary_3D.txt` and `tracking_3D.txt` (paper agreement, non-physical fraction,
-revolver span tilt). It also holds `paper_comparison_3D.png`: our paper-window map beside the
-digitised Fig. 2a, with disagreements outlined. Videos made with the grid picker
-(`testing/planar/pickModeGridRuns.m`) land in that run's `mode_grid_picks/`.
-`tracking_history_3D.csv` in this folder accumulates one row per run. The 3D suite writes
-here by default.
+Read the history with `readtable(file, 'ReadVariableNames', true, 'Delimiter', ',', 'TextType', 'string')`.
+MATLAB's auto-detection can mistake its header for data.
 
-Diff a snapshot's planar and shape3d stages with
-[`testing/baselines/compareBaselineModels.m`](../testing/baselines/compareBaselineModels.m).
+- **Labels:** the folder's `<label>` names the physics configuration (the `sw` overrides).
+- **Profiles:** `<profile>` is `full`, for baselines (everything, with videos), or `quick`, a
+  fast look after a change (coarse grids, no videos). Compare runs only within one profile.
+- **Older names:** runs before 2026-10-15 are named `..._3D_<label>` (no profile) and are full
+  runs.
+- **Older snapshots:** folders named `<timestamp>_<githash>` with no `_3D_` were made by the
+  now-archived `generateModelBaseline`, which ran the planar and 3D models side by side.
+
+## Other folders
+
+| folder | contents |
+|---|---|
+| `planar_final_<hash>/` | The **final record of the archived planar model**: its seven named modes, its test suite and its mode grid, run at the last commit where it was live (git tag `planar-final`). |
+| `fixtures/` | Golden references for `testing/shape3d/testRefactorInvariance.m`: built seeds, RHS samples and trajectories, pinned bit for bit around a refactor. |
 
 ## Why it's git-ignored
 
-Snapshots contain videos and full trajectory `.mat`s and add up fast, so the run
-outputs are **not** uploaded to GitHub (see this folder's `.gitignore`). Only the
-folder and this README are tracked. The **git hash** in each snapshot's name and
-`manifest` pins the exact code (including the aero constants) that produced it, so a
-snapshot can be regenerated from source even though the data isn't committed. Older
-snapshots cited in [`RESEARCH_LOG.md`](../RESEARCH_LOG.md) are archived outside the repo.
-
-## Regenerating
-
-Run `testing/baselines/generateModelBaseline.m`. It adds the paths it needs and writes a
-fresh snapshot folder here.
+Runs contain videos and full trajectory `.mat`s and add up fast, so the outputs are **not**
+uploaded to GitHub (see this folder's `.gitignore`). Only the folder and this README are
+tracked. The **git hash** in each folder name and manifest pins the exact code that produced
+it, so any run can be regenerated from source. Older snapshots cited in
+[`RESEARCH_LOG.md`](../RESEARCH_LOG.md) are archived outside the repo.

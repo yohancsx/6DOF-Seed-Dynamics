@@ -30,6 +30,7 @@ function ok = animateCaseVideo(t, x, sp, name, outDir, aopt)
 %     .eventTimes    times to mark on the paths (e.g. CoM moves)   (default [])
 %     .blind         no mode colours/labels (for by-eye labelling)  (default false)
 %     .topPanel      'auto' | 'body' | 'groundTrack'               (default 'auto')
+%     .modeLabel     whole-run six-part label shown in the title   (default '')
 %
 % OUTPUT
 %   ok : true if the video was written, false if it failed (reason printed).
@@ -43,6 +44,7 @@ function ok = animateCaseVideo(t, x, sp, name, outDir, aopt)
     if ~isfield(aopt,'eventTimes');    aopt.eventTimes    = [];    end
     if ~isfield(aopt,'blind');         aopt.blind         = false; end
     if ~isfield(aopt,'topPanel');      aopt.topPanel      = 'auto'; end
+    if ~isfield(aopt,'modeLabel');     aopt.modeLabel     = '';    end
 
     ok = false;
     if isempty(t) || isempty(x) || any(~isfinite(x(:)))
@@ -70,6 +72,7 @@ function ok = animateCaseVideo(t, x, sp, name, outDir, aopt)
             'eventTimes',    aopt.eventTimes, ...
             'blind',         aopt.blind, ...
             'topPanel',      aopt.topPanel, ...
+            'modeLabel',     char(aopt.modeLabel), ...
             'title',         char(name), ...
             'seedParams',    sp));
         if aopt.savePng

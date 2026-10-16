@@ -1,4 +1,9 @@
-%% Regression: the phase-4 physics terms (added-mass rate, edge drag, LEV)
+function res = testNewPhysicsTerms()
+% TESTNEWPHYSICSTERMS  Regression: the phase-4 physics terms (added-mass rate, edge drag, LEV)
+%
+% Returns res, a struct array (.name, .pass, .detail), one entry per check, and
+% prints as before. Run it on its own, or through testing/runRegressionTests.
+%
 % Locks the three terms added to the shape3d model in phase 4. Defaults: edge drag
 % ON, added-mass rate OFF, LEV OFF. Run after any change to rigidBody6DOF,
 % computeEdgeDrag, computeLEVForce, levPlanformConstants or seed6DOFODE3D.
@@ -58,6 +63,10 @@
 here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
 while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
 addpath(here);  P = seedPaths(here);
+% The planar model is archived; this test compares against it, so it (and only
+% it) puts the archived planar builder and RHS back on the path.
+addpath(fullfile(P.root, 'archive', 'planar', 'physics'), ...
+        fullfile(P.root, 'archive', 'planar', 'aero'));
 root = P.root;
 
 S = 0.050;  c = 0.015;  th = 0.002;  rho = 1.225;
@@ -136,7 +145,7 @@ okA5 = errOn < 1e-12 && errOff > 1e-3;
 results(end+1,:) = {'A5 ON == Kirchhoff/APW body-frame form; OFF is not', okA5, ...
     sprintf('ON rel err %.1e, OFF rel err %.1e', errOn, errOff)};
 
-spDefault3 = buildSeedParams(b, cfg3);   spDefaultP = buildSeedParams(b, cfg);
+spDefault3 = buildSeedParams(b, cfg3);   spDefaultP = buildPlanarSeedParams(b, cfg);
 okA6 = spDefault3.enableAddedMassRate && ~spDefaultP.enableAddedMassRate;
 results(end+1,:) = {'A6 ON by default for shape3d, OFF for frozen planar', okA6, ''};
 
@@ -424,8 +433,8 @@ try; cB = cfg3; cB.levApplicationPoint = 'front'; buildSeedParams(b, cB); catch;
 results(end+1,:) = {'L7 defaults off/colocated/kinematic; cfg.lev keeps Kv = Kp - Kp^2 Ki', okL7 && threw, ...
     sprintf('Kp=3 -> Kv %.3f;  AR 4.38 -> Kv %.3f;  bad names rejected', sO.lev.Kv, sA.lev.Kv)};
 
-%% C. Planar untouched
-spP = buildSeedParams(b, cfg);
+%% C. Planar untouched (the archived builder)
+spP = buildPlanarSeedParams(b, cfg);
 okC = ~spP.enableAddedMassRate && ~isfield(spP,'enableEdgeDrag') && ~isfield(spP,'enableLEV') ...
       && ~isfield(spP,'lev');
 results(end+1,:) = {'C  planar: rate OFF, no edge-drag or LEV switch', okC, ''};
@@ -442,6 +451,11 @@ if allOk
 else
     fprintf(2, '\nFAIL: see the checks above.\n');
 end
+
+% --- result struct (for runRegressionTests / stage 0 of the 3D suite) ------
+res = struct('name', results(:,1), 'pass', results(:,2), 'detail', results(:,3)).';
+for k = 1:numel(res); res(k).pass = logical(res(k).pass); end
+end   % main test function
 
 function s = pf(ok);  if ok; s = 'PASS'; else; s = 'FAIL'; end;  end
 function out = nthOut3(fn, varargin)

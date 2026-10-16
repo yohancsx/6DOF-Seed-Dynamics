@@ -7,6 +7,39 @@ given in §6.
 **Nothing here is decided until the user says so.** §5 lists the open decisions, each
 with a recommended default. Confirm them with the user before writing code.
 
+> **UPDATE 2026-10-15: a cleanup landed after this brief was written. Read this first.**
+> The sections below have been updated to match, but in short:
+> - **One model.** The planar model is archived (`archive/planar/`, git tag
+>   `planar-final`). `buildSeedParams` is shape3d-only (`cfg.shapeModel` defaults to
+>   `'shape3d'`; `'planar'` is an error), and so are `seedRHS` and `validateSeedParams`.
+> - **The builder no longer wraps the planar builder.** `setupSeedShape3D` has four
+>   sections:
+>   1. STRIPS: `physics3d/slicePlanform.m` gives the flat strips and flat mass;
+>   2. FRAMES: twist and curvature;
+>   3. MASS: `curvedMassProperties` when curved;
+>   4. PHYSICS: switches, LEV, `seedThickness`, `.model`, `.baseSeedParams`.
+>
+>   **The `stripGeom` path replaces sections 1–3. Section 4 is the shared tail, already
+>   factored**; there is no dead-switch stripping any more.
+> - **`runSingleMode` now labels with the six-part classifier** (`result.mode`,
+>   `result.parts`, `result.metrics` from `computeSeedModeMetrics`). The old
+>   `classifyFlightMode` is archived; don't use it.
+> - **Tracking:** use `testing/helpers/appendTrackingRow.m`. It merges new columns into
+>   `tracking_history_3D.csv`, so decision 6 below is settled: add `real_*` columns to the
+>   main history.
+> - **Tests:** every regression test is a function returning `res` (`.name/.pass/.detail`).
+>   `testing/runRegressionTests.m` runs them all, and it is stage 0 of the suite (warn
+>   only). Add `testRealSeedLoader` to its list. `testMinimalImpEquivalence` is the primary
+>   flat test.
+> - **Guard rails:**
+>   - `testing/shape3d/testRefactorInvariance.m` pins the model bit for bit. Run
+>     `('compare')` after the builder change: the existing seeds must stay 44/44 identical.
+>   - `testActivePathClean` fails if active code calls archived code.
+> - **Paths:** scripts find the repo through `seedPaths.m` (the 3-line bootstrap at the top
+>   of every script). `P.seedData` points at the real-seed `.mat`.
+> - **Suite:** stages are now 0 and A–F, with `cfg.profile = 'quick' | 'full'`. Stage G
+>   goes between F and 8b as planned. The grid picker moved to `testing/tools/`.
+
 ---
 
 ## 0. Ground rules for this repo
@@ -144,13 +177,13 @@ The 3D model's seed contract is documented in `physics/validateSeedParams.m`.
 
 ```
 bsp (base seed params)
-  └─ testing/helpers/buildSeedParams.m (bsp, cfg)
-       ├─ cfg.shapeModel = 'shape3d' → physics3d/setupSeedShape3D.m(struct('baseSeedParams', bsp))
-       │     ├─ calls physics/setupSeedShapeAndMass.m  (polyshape → strips + flat mass)  [FROZEN planar builder — do not edit]
-       │     ├─ applies twist (bsp.twist) / curvature (bsp.curvature) → per-strip frames
-       │     ├─ curvedMassProperties (local fn) when curved
-       │     ├─ stamps shape3d physics switches + LEV constants (levPlanformConstants) + seedThickness
-       │     └─ strips dead planar switches, sets .model = 'shape3d'
+  └─ testing/helpers/buildSeedParams.m (bsp, cfg)        [shape3d only]
+       ├─ physics3d/setupSeedShape3D.m(struct('baseSeedParams', bsp))
+       │     ├─ 1. STRIPS  physics3d/slicePlanform.m (polyshape → strips + flat mass)
+       │     ├─ 2. FRAMES  twist (bsp.twist) / curvature (bsp.curvature) → per-strip frames
+       │     ├─ 3. MASS    curvedMassProperties (local fn) when curved
+       │     └─ 4. PHYSICS switch defaults + LEV constants (levPlanformConstants) +
+       │                   seedThickness, .model = 'shape3d', .baseSeedParams = bsp
        ├─ sets sp.rhoFluid, sp.g
        └─ applies explicit cfg switch overrides (enableEdgeDrag, enableAddedMassRate,
           enableAddedMassMoment, enableAddedMass3D, enableLEV, levApplicationPoint, cfg.lev, cfg.aero)
@@ -221,23 +254,19 @@ unchanged.
   - optional `animateCaseVideo` into `<runDir>/<stage>_3D/`;
   - a struct saved with `save(...,'cfg','effSwitches')`;
   - lines appended to `summary(end+1)`.
-- **§8b tracking:** builds a one-row `table` and appends it to `tracking_history_3D.csv`.
-  Add `real_*` columns there, with NaN when the stage is off. That keeps the CSV's columns
-  consistent across runs.
-  - **Caution:** `writetable` append doesn't add new columns to an existing CSV. Adding
-    columns needs one of:
-    1. read the old CSV, `outerjoin`/vertically concatenate with NaN fill, and rewrite;
-       or
-    2. write a separate `tracking_history_realseeds_3D.csv`.
-
-    Option 2 is simpler. Ask the user which they want.
+- **§8b tracking:** builds a one-row `table` and writes it with
+  `appendTrackingRow(cfg.trackingFile, row)`, which merges new columns (older rows get NaN).
+  Add `real_*` columns to that row, with NaN when the stage is off.
 - **§9:** manifest and summary.
-- The grid picker `testing/planar/pickModeGridRuns.m` is not involved.
+- The grid picker `testing/tools/pickModeGridRuns.m` is not involved.
 
 ### Existing tests to copy and to keep passing
 
+- `testing/runRegressionTests.m` runs all of them (~35 s). **Everything must still pass**
+  after any `setupSeedShape3D` change, and `testRefactorInvariance('compare')` must stay
+  44/44.
 - `testing/shape3d/testShape3DFlatEquivalence.m`: the 3D model on a flat seed must equal
-  the planar model. **It must still pass** after any `setupSeedShape3D` change.
+  the (archived) planar model's core.
 - `testing/shape3d/testCurvedMassProperties.m`: the pattern for a mass-property
   cross-check.
 - `testing/shape3d/testPaperMetrics.m`: 17 synthetic classifier cases.
@@ -318,19 +347,12 @@ Remember the ask-before-ticking rule for the roadmap.
 
 Recommended approach:
 
-- **At the top:** if `bsp.stripGeom` is present (strips, frames, mass properties and
+- **In sections 1–3:** if `bsp.stripGeom` is present (strips, frames, mass properties and
   polyshape, built by the loader), take the strips and `massParams` from it directly.
-  This skips `setupSeedShapeAndMass` and the twist/curvature/`curvedMassProperties`
-  branch.
-- **Then fall through to the shared tail:**
-  - `seedThickness`;
-  - the physics-switch defaults;
-  - LEV constants: `levPlanformConstants(sum(dz)/meanChord)`, plus RoCrit, p, lambdaV
-    and rossbyDefinition;
-  - the dead-switch strip;
-  - `.model = 'shape3d'`;
-  - `.baseSeedParams = bsp`, which the renderers need.
-- **Factor that tail into a local function** so both paths share it.
+  This skips `slicePlanform` and the twist/curvature/`curvedMassProperties` steps.
+- **Then section 4 runs unchanged.** It is the shared tail: `seedThickness`, the
+  physics-switch defaults, the LEV constants, `.model = 'shape3d'`, and
+  `.baseSeedParams = bsp` (which the renderers need).
 - **The existing paths must stay bit-identical.** Verify with
   `testShape3DFlatEquivalence` and `testCurvedMassProperties`, and with a short smoke run
   of the suite (stage A on a single twist case: before and after must match).
@@ -451,8 +473,8 @@ This uses the pass/fail print style of `testPaperMetrics.m`.
    switch to 3D for this stage.
 5. **Run length:** a fixed 12 s like the suite (recommended for classification), or
    matched to the trial drop height? If matched, what height?
-6. **Tracking CSV:** add columns to `tracking_history_3D.csv` (needs a rewrite-merge),
-   or use a separate `tracking_history_realseeds_3D.csv` (simpler).
+6. **Tracking CSV:** *settled by the cleanup:* add `real_*` columns to
+   `tracking_history_3D.csv` via `appendTrackingRow`.
 7. **Videos:** off by default (recommended), or on?
 
 ---
@@ -463,8 +485,8 @@ Stop after each step that changes behaviour, report, and let the user commit.
 
 1. **`loadRealSeeds.m`, the `setupSeedShape3D` `stripGeom` path and
    `testRealSeedLoader.m`.**
-   - Run the new test, `testShape3DFlatEquivalence`, `testCurvedMassProperties` and
-     `testPaperMetrics`, and report the results.
+   - Run the new test, `runRegressionTests` and `testRefactorInvariance('compare')`, and
+     report the results.
 2. **Geometry check sheet.** The user compares the 29 imports with their fitting
    figures.
 3. **`runRealSeedSet3D.m` standalone,** on 3 seeds first and then all 29.
