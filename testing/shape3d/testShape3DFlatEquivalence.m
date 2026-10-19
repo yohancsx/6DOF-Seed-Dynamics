@@ -67,6 +67,7 @@ cfgPcore.enableNormalSpinDamping = false;
 cfg3core = cfg;  cfg3core.shapeModel = 'shape3d';
 cfg3core.enableEdgeDrag        = false;   cfg3core.enableAddedMassRate = false;
 cfg3core.enableAddedMassMoment = false;   cfg3core.enableLEV           = false;
+cfg3core.enableAddedMassCoupling = false;
 
 % FULL: each model at its own defaults (planar keeps the invented terms).
 cfgPfull = cfg;

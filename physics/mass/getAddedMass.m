@@ -1,6 +1,15 @@
-function [A_trans, A_rot] = getAddedMass(seedParams, comPos_body)
-%TODO: CHECK THIS
+function [A_trans, A_rot, A_coup] = getAddedMass(seedParams, comPos_body)
 % GETADDEDMASS  Body-frame added-mass blocks for the flat-plate seed.
+%
+% The three blocks are Kirchhoff's 6x6 added-mass operator about the CoM, built
+% from the strips (audited against minimal_imp 2026-10-16):
+%     T_A = sum_i  m2_i/2 (n_i . (V + W x d_i))^2  +  ia_i/2 (s_i . W)^2
+%         = 1/2 [V; W]' [A_trans  A_coup ; A_coup'  A_rot] [V; W]
+% A_coup (third output) is the translation-rotation COUPLING block,
+%     A_coup = sum_i m2_i n_i (d_i x n_i)'
+% nonzero whenever the CoM is off the strips' added-mass centroid. In 2D it is
+% minimal_imp's -m2*lcm (A_coup(2,3), CoM lcm ahead of the plate centre). It is
+% used by rigidBody6DOF only when seedParams.enableAddedMassCoupling is on.
 %
 % Strip-theory generalization of the 2D Andersen-Pesavento-Wang added mass
 % (minimal_imp_Commented.m lines 92-102), which used:
@@ -55,6 +64,8 @@ function [A_trans, A_rot] = getAddedMass(seedParams, comPos_body)
 %   A_rot   : 3x3 rotational added-inertia block about the CoM, body frame
 %             (kg·m^2). Symmetric, with zero entries on the body-y row/column
 %             except where coupling is physically absent.
+%   A_coup  : 3x3 translation-rotation coupling block about the CoM, body frame
+%             (kg·m). Force rows, rotation columns: P = A_trans*V + A_coup*W.
 
 % -------------------------------------------------------------------------
 % 0. INPUTS / DEFAULTS
@@ -110,12 +121,14 @@ if use3D
 
     A_trans = zeros(3);
     A_rot   = zeros(3);
+    A_coup  = zeros(3);
     for i = 1 : numel(chord)
         n = nDir(:, i);   s = sDir(:, i);
         d = [xGeo(i); yGeo(i); zGeo(i)] - comPos_body;   % strip centre rel. CoM
         r = cross(d, n);
         A_trans = A_trans + m2_strip(i) * (n * n.');
         A_rot   = A_rot   + m2_strip(i) * (r * r.') + ia_strip(i) * (s * s.');
+        A_coup  = A_coup  + m2_strip(i) * (n * r.');
     end
 else
     % --- Flat-plate form (planar default) ---------------------------------
@@ -139,6 +152,12 @@ else
     A_rot = [ I_xx,   0,    I_xz ;
               0,      I_yy, 0    ;
               I_xz,   0,    I_zz ];
+
+    % Coupling block: with n = body y and d x n = (-z_s, 0, x_s), only the
+    % normal row is nonzero. A chordwise CoM offset couples normal motion with
+    % pitch (the 2D -m2*lcm); a spanwise offset couples it with roll.
+    A_coup = zeros(3);
+    A_coup(2, :) = [ -sum(m2_strip .* z_s), 0, sum(m2_strip .* x_s) ];
 end
 
 end

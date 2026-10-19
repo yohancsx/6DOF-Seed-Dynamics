@@ -40,9 +40,14 @@ function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 %   * enableEdgeDrag        ON  -- pure drag on a seed sliding along its span, which
 %     the strips cannot see at all (computeEdgeDrag). Section 3b.
 %   * enableAddedMassRate   ON  -- the Adot*v term of the translational EOM, and
-%   * enableAddedMassMoment ON  -- its rotational partner v x (A v), the Munk moment:
-%     the two halves of Kirchhoff's added-mass pair (APW eqs. 6.1-6.3). Both live in
-%     the rigid-body core, rigidBody6DOF.
+%   * enableAddedMassMoment ON  -- its rotational partner v x (A v), the Munk moment,
+%     in addedMassMomentMode 'residual' (2026-10-16): minus each strip's own
+%     in-section Munk moment (tau_IS, formed in the strip loop below), which the
+%     measured centre of pressure already contains. The spanwise-flow part stays.
+%   * enableAddedMassCoupling ON (2026-10-16) -- the off-centre added-mass coupling
+%     (getAddedMass's A_coup), Kirchhoff's symmetric 6x6 form by default
+%     (addedMassCouplingForm = 'symmetric'; 'oneSided' reproduces minimal_imp).
+%   All of these live in the rigid-body core, rigidBody6DOF, which documents them.
 %   * enableLEV             OFF -- leading-edge-vortex vortex lift, per strip, inside
 %     the strip loop (computeLEVForce, constants from levPlanformConstants), with
 %     two modelling switches: levApplicationPoint = 'colocated' | 'forward' chooses
@@ -51,13 +56,13 @@ function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 %     distance from the CoM.
 %
 % FLAT EQUIVALENCE, two checks:
-%   * against Olivia's published 2D model: flown in the plane with the CoM at the
-%     plate centre, this reproduces minimal_imp exactly (equations and trajectory);
-%     with the CoM off-centre the aero terms still match, the equations of motion
-%     do not yet (no off-centre added-mass coupling; README roadmap) --
+%   * against Olivia's published 2D model: flown in the plane with the coupling
+%     in its 'oneSided' form, this reproduces minimal_imp exactly at any CoM offset
+%     (equations and trajectory). The default 'symmetric' form differs from it by
+%     exactly one term, +m2 lcm vdot in the torque, which minimal_imp omits --
 %     testing/shape3d/testMinimalImpEquivalence.m;
 %   * against the archived planar model: with its extras disabled (span force, Tx,
-%     Ty) and the phase-4/5 terms disabled here (edge drag, both added-mass terms,
+%     Ty) and the phase-4/5 terms disabled here (edge drag, all added-mass terms,
 %     LEV), this reduces EXACTLY to seed6DOFODE on a flat seed --
 %     testing/shape3d/testShape3DFlatEquivalence.m.
 %
@@ -80,7 +85,7 @@ function [xdot, intermediates] = seed6DOFODE3D(t, x, seedParams)
 % INPUTS
 %   t          : time (s).
 %   x          : 13x1 state vector (above).
-%   seedParams : struct from setupSeedShapeAndMass, plus the fields:
+%   seedParams : struct from setupSeedShape3D (via buildSeedParams), plus the fields:
 %                  .rhoFluid  fluid density (kg/m^3), e.g. 1.225 for air
 %                  .g         gravity magnitude (m/s^2), e.g. 9.81
 %                  .aero      (optional) empirical coefficient struct for
@@ -154,6 +159,7 @@ end
 
 F_aero_body = [0; 0; 0];
 tau_body    = [0; 0; 0];
+tau_IS      = [0; 0; 0];   % in-section Munk moment, for the 'residual' Munk mode
 
 % Pre-allocate intermediate storage.
 alphaAll  = zeros(1, numStrips);
@@ -327,6 +333,12 @@ for i = 1 : numStrips
     F_aero_body = F_aero_body + dF;
     tau_body    = tau_body    + dTau;
 
+    % --- the strip's own 2D Munk moment about its span axis, -(m2 - m1) vc vn
+    % with m1 = 0, at its centre velocity. Its measured centre of pressure above
+    % already contains this moment, so rigidBody6DOF removes it from the Munk
+    % moment in the 'residual' mode (see its header). Not applied here.
+    tau_IS = tau_IS - pi*rhoFluid*(chord(i)/2)^2*dz(i) * vChord*vNormal * sDir;
+
     % --- store intermediates
     alphaAll(i)   = alpha;
     xcpAll(i)     = xcp;
@@ -353,7 +365,8 @@ F_aero_body = F_aero_body + F_edge;
 % the net body-frame force/torque + mass properties to the shape-agnostic 6-DOF
 % core, which rotates the force to inertial, adds gravity, solves the
 % translational (with added mass) and modified-Euler rotational dynamics, and
-% integrates the quaternion. The SAME core is used by the 3D-shape force model.
+% integrates the quaternion.
+mp.tau_inSectionMunk = tau_IS;
 [xdot, core] = rigidBody6DOF(x, mp, F_aero_body, tau_body, gMag);
 
 % =========================================================================
@@ -372,14 +385,14 @@ if nargout > 1
     % NOTE: Tx_spanSpin / Tx_applied / Ty_normalSpin / spanTorqueAtten /
     % r_spanCoP_body, and the span-force fields F_span_full / F_span_apply /
     % tau_span, are GONE -- the terms they reported were removed (see the header).
-    % The planar seed6DOFODE still exposes them, and their only consumer,
-    % testing/planar/runSpanForceComparison.m, is a planar-only diagnostic.
+    % The archived planar seed6DOFODE still exposes them.
     intermediates.F_edge          = F_edge;           % 3x1 edge crossflow drag, body (0 if off)
     intermediates.tau_edge        = tau_edge;         % 3x1 its moment about the CoM, body
     intermediates.r_edgeArm_body  = r_edgeArm_body;   % 3x1 area centroid relative to CoM, body
     intermediates.vSpan_edge      = vSpan_edge;       % spanwise velocity at the centroid (m/s)
     intermediates.F_addedMassRate = core.F_addedMassRate; % 3x1 Adot*v, inertial (0 if off)
-    intermediates.tau_addedMass   = core.tau_addedMass;   % 3x1 v x (A v), body (0 if off)
+    intermediates.tau_addedMass   = core.tau_addedMass;   % 3x1 Munk moment removed from tau, body (0 if off)
+    intermediates.tau_inSectionMunk = tau_IS;           % 3x1 strips' own 2D Munk moments, body
     % LEV vortex lift, per strip (all zero when enableLEV is off). F_strip_body and
     % tau_strip_body above already INCLUDE it when it is on.
     intermediates.CT_lev          = CTlevAll;         % 1xM gated, signed vortex-lift coefficient

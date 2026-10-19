@@ -144,6 +144,22 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     % also measurably improve the comparison with Hou et al. (2025): descent speed
     % moves from 1.2-2.4 to 1.0-1.4 times sqrt(sigma g/rho), where the published
     % prefactor is O(1). (The archived planar model kept both OFF.)
+    %   addedMassMomentMode 'residual' -- (2026-10-16 audit against minimal_imp)
+    %                              apply the Munk moment MINUS each strip's own
+    %                              in-section 2D Munk moment, which the measured
+    %                              centre of pressure (computeAeroCoeffs' l_cp, the
+    %                              TOTAL CoP) already contains. Keeps the
+    %                              spanwise-flow (roll) part, which the strips cannot
+    %                              see. 'full' is the phase-5 behaviour, which
+    %                              counted the pitching moment twice.
+    %   enableAddedMassCoupling ON -- (2026-10-16) the off-centre added-mass
+    %                              coupling: the fluid's added mass sits at the
+    %                              strip centres, not the CoM (getAddedMass A_coup).
+    %                              Kirchhoff's 6x6 equations in rigidBody6DOF.
+    %   addedMassCouplingForm 'symmetric' -- Kirchhoff's form, which also has the
+    %                              torque-side term +m2 lcm vdot that minimal_imp
+    %                              omits. 'oneSided' reproduces minimal_imp exactly
+    %                              and is used only to compare against it.
     %   enableAddedMass3D   OFF -- the full per-strip added-mass tensor built from
     %                              each strip's own normal (getAddedMass). OFF uses
     %                              the flat-plate form, a documented approximation
@@ -159,6 +175,9 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     seedParamsFull.enableEdgeDrag        = true;
     seedParamsFull.enableAddedMassRate   = true;
     seedParamsFull.enableAddedMassMoment = true;
+    seedParamsFull.addedMassMomentMode   = 'residual';
+    seedParamsFull.enableAddedMassCoupling = true;
+    seedParamsFull.addedMassCouplingForm = 'symmetric';
     seedParamsFull.enableAddedMass3D     = false;
     seedParamsFull.enableLEV             = false;
     seedParamsFull.levApplicationPoint   = 'colocated';

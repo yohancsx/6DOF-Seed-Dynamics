@@ -27,19 +27,30 @@ function res = testRefactorInvariance(mode, opts)
 % dotted paths below seedParams, e.g. {'enableSpanForce'}), and are then only
 % reported, not failed.
 %
+% PHYSICS CHANGES. To prove a new term is purely additive, compare with it switched
+% off: opts.cfgOverride (struct) is merged into every seed's cfg before building,
+% and opts.allowAdded lists new seedParams fields to tolerate. For the 2026-10-16
+% added-mass change:
+%   testRefactorInvariance('compare', struct('cfgOverride', struct( ...
+%       'enableAddedMassCoupling', false, 'addedMassMomentMode', 'full'), ...
+%       'allowAdded', {{'enableAddedMassCoupling', 'addedMassCouplingForm', ...
+%                       'addedMassMomentMode'}}))
+%
 % OUTPUT
 %   res : struct array (.name, .pass, .detail), one entry per check.
 
     if nargin < 1 || isempty(mode); mode = 'compare'; end
     if nargin < 2 || isempty(opts); opts = struct(); end
     if ~isfield(opts, 'allowRemoved'); opts.allowRemoved = {}; end
+    if ~isfield(opts, 'allowAdded');   opts.allowAdded   = {}; end
+    if ~isfield(opts, 'cfgOverride');  opts.cfgOverride  = struct(); end
 
     here = fileparts(mfilename('fullpath'));
     while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
     addpath(here);  P = seedPaths(here);
     fixDir = fullfile(P.results, 'fixtures');
 
-    cur = computeReference();
+    cur = computeReference(opts.cfgOverride);
 
     switch lower(mode)
         case 'capture'
@@ -83,7 +94,11 @@ function res = testRefactorInvariance(mode, opts)
             res(end+1) = item(['seed ' cur.seeds(k).name], false, 'not in the fixture'); %#ok<AGROW>
             continue
         end
-        [diffs, removed] = structDiff(gold.seeds(g).sp, cur.seeds(k).sp, 'sp', opts.allowRemoved);
+        spc = cur.seeds(k).sp;
+        for f = opts.allowAdded
+            if isfield(spc, f{1}) && ~isfield(gold.seeds(g).sp, f{1}); spc = rmfield(spc, f{1}); end
+        end
+        [diffs, removed] = structDiff(gold.seeds(g).sp, spc, 'sp', opts.allowRemoved);
         det = '';
         if ~isempty(removed); det = ['removed as allowed: ' strjoin(removed, ', ')]; end
         if ~isempty(diffs); det = strjoin([diffs(1:min(end,6)), {det}], ' | '); end
@@ -134,8 +149,13 @@ end
 % =========================================================================
 % The reference itself: a fixed seed set, RHS samples, trajectories
 % =========================================================================
-function ref = computeReference()
+function ref = computeReference(cfgOverride)
     seeds = seedSet();
+    for k = 1:numel(seeds)
+        for f = fieldnames(cfgOverride).'
+            seeds(k).cfg.(f{1}) = cfgOverride.(f{1});
+        end
+    end
     ref.seeds = struct('name', {}, 'sp', {}, 'xdot', {}, 'F', {}, 'tau', {});
     for k = 1:numel(seeds)
         sp = buildSeedParams(seeds(k).bsp, seeds(k).cfg);

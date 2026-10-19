@@ -3,8 +3,9 @@ function [T, summary] = runRegressionTests(opts)
 %
 % The fast checks that should hold after ANY change (about a minute in all):
 %   testMinimalImpEquivalence   the 3D model in 2D == Olivia's minimal_imp (primary
-%                               flat test; its CoM-offset cases WARN until the
-%                               added-mass coupling is in, see the README roadmap)
+%                               flat test), and our default == hers + m2 lcm vdot
+%   testAddedMassCoupling       off-centre coupling block, 6x6 solve, energy,
+%                               residual Munk mode
 %   testShape3DFlatEquivalence  the 3D model == the archived planar model's core
 %   testCurvedMassProperties    curved-seed mass and inertia
 %   testNewPhysicsTerms         added-mass rate + Munk moment, edge drag, LEV
@@ -28,7 +29,7 @@ function [T, summary] = runRegressionTests(opts)
     addpath(here);  P = seedPaths(here);
     addpath(fullfile(P.root, 'testing', 'shape3d'));
 
-    tests = {'testMinimalImpEquivalence', 'testShape3DFlatEquivalence', ...
+    tests = {'testMinimalImpEquivalence', 'testAddedMassCoupling', 'testShape3DFlatEquivalence', ...
              'testCurvedMassProperties', 'testNewPhysicsTerms', 'testPaperMetrics', ...
              'testActivePathClean'};
     if nargin >= 1 && isfield(opts, 'tests'); tests = cellstr(opts.tests); end

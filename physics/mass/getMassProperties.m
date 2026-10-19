@@ -26,6 +26,7 @@ function mp = getMassProperties(t, seedParams)
 %   mp.I_G_dot : 3x3 inertia rate at time t (kg·m^2/s).
 %   mp.A_trans : 3x3 translational added-mass block, body frame (kg).
 %   mp.A_rot   : 3x3 rotational added-inertia block about the CoM (kg·m^2).
+%   mp.A_coup  : 3x3 translation-rotation coupling block about the CoM (kg·m).
 %
 % Added mass is evaluated at the CURRENT CoM (mp.c) via getAddedMass, so a
 % moving CoM is tracked. Buoyancy geometry (Vdisp, centroid) is intentionally
@@ -72,7 +73,7 @@ end
 %    A_trans is CoM-independent; A_rot is referenced to the CoM, so it is
 %    re-evaluated at mp.c each call and tracks a moving CoM.
 % -------------------------------------------------------------------------
-[mp.A_trans, mp.A_rot] = getAddedMass(seedParams, mp.c);
+[mp.A_trans, mp.A_rot, mp.A_coup] = getAddedMass(seedParams, mp.c);
 
 % -------------------------------------------------------------------------
 % 4. PHYSICS SWITCH consumed by the rigid-body core
@@ -84,5 +85,18 @@ mp.enableAddedMassRate = isfield(seedParams, 'enableAddedMassRate') ...
                          && seedParams.enableAddedMassRate;
 mp.enableAddedMassMoment = isfield(seedParams, 'enableAddedMassMoment') ...
                            && seedParams.enableAddedMassMoment;
+% The off-centre coupling (A_coup) and how the Munk moment is applied. Absent ->
+% the pre-2026-10-16 behaviour (no coupling, full Munk), so older structs and the
+% golden fixture stay byte-identical.
+mp.enableAddedMassCoupling = isfield(seedParams, 'enableAddedMassCoupling') ...
+                             && seedParams.enableAddedMassCoupling;
+mp.addedMassCouplingForm = 'symmetric';
+if isfield(seedParams, 'addedMassCouplingForm')
+    mp.addedMassCouplingForm = char(seedParams.addedMassCouplingForm);
+end
+mp.addedMassMomentMode = 'full';
+if isfield(seedParams, 'addedMassMomentMode')
+    mp.addedMassMomentMode = char(seedParams.addedMassMomentMode);
+end
 
 end

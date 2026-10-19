@@ -24,13 +24,33 @@ There is **one model**, `shape3d` (builder `setupSeedShape3D`, right-hand side
 
 - spanwise twist and curvature;
 - no empirical whole-seed terms;
-- first-principles added mass (Kirchhoff's pair) and tip edge drag, both on by default;
+- first-principles added mass: Kirchhoff's full equations for a body in fluid, built from
+  the strips, including the off-centre translation–rotation coupling (2026-10-16);
+- tip edge drag, on by default;
 - LEV lift available but off.
 
-Flown in the plane it reproduces Olivia's published 2D model `minimal_imp` exactly for a
-CoM-centred plate (`testMinimalImpEquivalence`). With the CoM off-centre the aero terms still
-match, but the equations of motion don't yet: a missing added-mass coupling, now on the
-roadmap.
+Flown in the plane, with the coupling in `minimal_imp`'s one-sided form, it reproduces Olivia's
+published 2D model `minimal_imp` exactly at any CoM offset: equations and trajectory
+(`testMinimalImpEquivalence`). Our default physics differs from hers by exactly one term,
+added on purpose: the torque-side coupling `+m₂·l_cm·v̇`, which her model omits. Without it
+the added-mass matrix is not symmetric and does not conserve energy in ideal flow.
+
+**2026-10-16 audit against `minimal_imp`.** Every aero term matched. Three things changed:
+- **The Munk moment's pitch part was a double count.** `minimal_imp`'s centre of pressure is
+  the *total* one, so it already contains it. That part is now removed strip by strip
+  (`addedMassMomentMode = 'residual'`), and the spanwise roll part is kept.
+- **The off-centre coupling is added.**
+- **The coupling uses Kirchhoff's symmetric form.**
+
+The term-by-term comparison is in the research log, phase 10.
+
+**What it did to validation.** Agreement with the Hou et al. phase map dropped from 14.4% to
+1.9%. Most cells no longer settle (`chaotic` / `wobblingSpin`). The two changes interact:
+- the residual Munk moment alone raises paper-vocabulary agreement to 46%;
+- the coupling alone makes every cell flutter.
+
+Free flight is validation only, so the physics stays as decided. What is missing in pitch is
+the next question (log phase 10).
 
 **The planar model is archived** (2026-10-15) in [`archive/planar/`](archive/planar), with
 the git tag `planar-final` marking the last commit where it was live. It reproduced the seven
@@ -155,6 +175,9 @@ owns the defaults.
 |---|---|---|
 | `enableAddedMassRate` | **`true`** | `Ȧv`, translational half of Kirchhoff's pair |
 | `enableAddedMassMoment` | **`true`** | `v × (A·v)` Munk moment, rotational half |
+| `addedMassMomentMode` | **`'residual'`** | Munk moment minus each strip's in-section 2D part, which the measured CoP already contains. `'full'` is the phase-5 behaviour (double counts the pitching moment). |
+| `enableAddedMassCoupling` | **`true`** | off-centre added-mass coupling `A_coup` (Kirchhoff's 6×6 solve in `rigidBody6DOF`) |
+| `addedMassCouplingForm` | `'symmetric'` | Kirchhoff's form; `'oneSided'` drops the torque-side term to reproduce `minimal_imp` (tests only) |
 | `enableAddedMass3D` | `false` | full per-strip added-mass tensor from strip normals (meaningful for curved seeds) |
 | `enableEdgeDrag` | **`true`** | tip crossflow drag, `C_d = 1.2` on `t·c̄` |
 | `enableLEV` | `false` | LEV vortex lift (Rezgui et al. / Polhamus form) |
@@ -233,7 +256,8 @@ pass/fail per check and can also be run on its own.
 
 | Script | What it checks |
 |---|---|
-| `shape3d/testMinimalImpEquivalence.m` | **The primary flat test.** The 3D model flown in the plane against Olivia's published 2D model, whose `Model` function is extracted verbatim from `minimal_imp.m` at run time. For a CoM-centred plate: the equations of motion over 500 random states (to 1e-14) and a 5 s trajectory (identical). At a CoM offset: the aerodynamic force and torque (exact), and the full equations and trajectory. The latter two **WARN**, because of the missing added-mass coupling (roadmap). |
+| `shape3d/testMinimalImpEquivalence.m` | **The primary flat test.** The 3D model flown in the plane against Olivia's published 2D model, whose `Model` function is extracted verbatim from `minimal_imp.m` at run time. For a CoM-centred plate: the equations of motion over 500 random states (to 1e-14) and a 5 s trajectory (identical). At a CoM offset of 0.1 cm, in the one-sided coupling form: the aerodynamic force and torque, the full equations, and the trajectory, all exact. E6: our **default** physics equals `minimal_imp` plus the torque-side term `+m₂·l_cm·v̇`, solved simultaneously, to 1e-10. |
+| `shape3d/testAddedMassCoupling.m` | The 2026-10-16 added-mass terms in 3D. Checks: the coupling block from both added-mass branches and its 2D limit `−m₂·l_cm`; with `A_coup = 0`, the 6×6 path equals the old path; energy is conserved in ideal flow by the symmetric form and not by the one-sided one; `'residual'` keeps only the roll part of the Munk moment. |
 | `shape3d/testShape3DFlatEquivalence.m` | For a flat seed, the 3D model reduces **bit-identically** to the archived planar model over the shared core (each model's extras switched off), and must *differ* at full defaults. |
 | `shape3d/testCurvedMassProperties.m` | Curved-seed mass/inertia: analytic check, reduction to the planar builder, bowl sanity, toggles. |
 | `shape3d/testNewPhysicsTerms.m` | The phase-4/5 terms: added-mass rate (A-checks, incl. equivalence to Kirchhoff's body-frame form), Munk moment (M-checks, incl. the 2D limit vs APW eq. 6.3), edge drag, and LEV (constants, both Rossby gates, application points, RHS wiring, `cfg.lev` overrides). |
@@ -318,7 +342,8 @@ tuning.
 
 - twist and curvature, with each strip's aero in its own frame;
 - curvature-correct mass/inertia;
-- Kirchhoff's added-mass pair (rate + Munk moment), on by default;
+- Kirchhoff's added-mass equations (rate, Munk moment minus its in-section part, off-centre
+  coupling), on by default;
 - tip edge drag, on by default;
 - LEV vortex lift with a kinematic Rossby gate, off by default.
 
@@ -402,7 +427,8 @@ tuning.
 **Rigid bodies in fluid**
 
 19. Lamb, H. (1932). *Hydrodynamics* (6th ed.), ch. VI. Cambridge University Press.
-    Kirchhoff's equations for a body in fluid: the added-mass rate and the Munk moment.
+    Kirchhoff's equations for a body in fluid: the added-mass rate, the Munk moment and the
+    translation–rotation coupling of an off-centre body.
 
 **Canonical static plate data (planned calibration, roadmap step 2)**
 
@@ -495,10 +521,14 @@ never tuning.
     added-mass matrix about the CoM) and present in the validated reference model.
   - **Acceptance:** cases E3 and E4 (`lcm ≠ 0`) of `testMinimalImpEquivalence` go from WARN
     to PASS. The CoM-centred cases E1/E4, already exact, must stay exact.
+  - *Status 2026-10-16: implemented and on by default (`enableAddedMassCoupling`), in
+    Kirchhoff's symmetric form. That form adds `+m₂·l_cm·v̇` to the torque, which
+    `minimal_imp` omits. The acceptance is met in the one-sided form: E1–E5 pass at 1e-10,
+    E6 pins the default, 68/68 regressions pass. The same audit moved the Munk moment to
+    `'residual'`. Awaiting your OK to tick; details in log phase 10.*
 - [ ] 2D validation suite vs `minimal_imp`: RHS match at matched states, plus trajectory
-  comparison. *`testMinimalImpEquivalence.m` does both. The CoM-centred plate is exact (RHS
-  to 1e-14, identical 5 s trajectory) and the aero terms match at any offset; the offset
-  equations of motion wait on the coupling item above.*
+  comparison. *`testMinimalImpEquivalence.m` does both. Since 2026-10-16 every case passes at
+  any CoM offset (one-sided form), and E6 pins our default to hers plus the torque-side term.*
 - [ ] Standalone intermediates-recovery helper (rebuild per-strip quantities over a saved
   trajectory; `ode45` discards the RHS's second output).
 - [ ] Validate twist and curvature against real seeds; optionally accept a general YZ polyline
@@ -511,7 +541,10 @@ never tuning.
     `Ty` is always applied (it has a switch). Refresh its PDF.
   - Rename `seed3D_physics.tex` so it cannot be confused with `physics3d/`.
   - Write a `shape3d` derivation. First candidates, since they are settled: twist/curvature
-    frames, curved mass properties, edge drag, and Kirchhoff's added-mass pair.
+    frames, curved mass properties, edge drag, and Kirchhoff's added-mass equations, with the
+    strip operator, the coupling block and the residual Munk mode (log phase 10).
+  - Both `.tex` files justify dropping the coupling with "zero for the symmetric seed and
+    ∝ ρ_air otherwise". That reasoning no longer holds (phase 10).
 
 ### Completed
 

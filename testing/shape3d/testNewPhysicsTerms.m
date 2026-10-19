@@ -72,6 +72,10 @@ root = P.root;
 S = 0.050;  c = 0.015;  th = 0.002;  rho = 1.225;
 cfg  = struct('rhoFluid',rho,'g',9.81);
 cfg3 = cfg;  cfg3.shapeModel = 'shape3d';
+% The A and M checks test the UNCOUPLED formulas (Adot*v and the full v x (A v))
+% term by term, so they pin the pre-2026-10-16 path: no off-centre coupling, full
+% Munk. The coupled 6x6 path and the residual mode are testAddedMassCoupling's.
+cfg3.enableAddedMassCoupling = false;  cfg3.addedMassMomentMode = 'full';
 cfgR = cfg3; cfgR.enableAddedMassRate = true;          % rate term switched ON
 b.seedShape = polyshape([-S/2,S/2,S/2,-S/2],[-c/2,-c/2,c/2,c/2]);
 b.seedDensity = 65*th;  b.seedThickness = th;  b.numStrips = 10;

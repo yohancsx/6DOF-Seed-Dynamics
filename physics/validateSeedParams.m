@@ -50,10 +50,11 @@ function info = validateSeedParams(seedParams)
 %
 % OPTIONAL (defaults applied by the RHS if absent): seedParams.aero, plus the
 % physics switches, which DIFFER BY MODEL:
-%   both models  : enableAddedMass3D, enableAddedMassRate, enableAddedMassMoment
-%                  (the last two default OFF in both; they are the two halves of
-%                  Kirchhoff's pair and both live in the shared rigidBody6DOF --
-%                  Adot*v in the force, v x (A*v) in the torque)
+%   added mass   : enableAddedMass3D, enableAddedMassRate, enableAddedMassMoment,
+%                  addedMassMomentMode, enableAddedMassCoupling,
+%                  addedMassCouplingForm (shape3d defaults in setupSeedShape3D;
+%                  absent -> rate/moment off, no coupling, 'full' Munk mode). All
+%                  live in rigidBody6DOF, which documents them.
 %   planar only  : enableSpanForce, enableSpanGeomVelocity, enableSpanTorque,
 %                  enableSpanCOPMigration, enableSpanTorqueAttenuation,
 %                  enableTxDamping, enableNormalSpinDamping

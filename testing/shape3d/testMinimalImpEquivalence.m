@@ -4,7 +4,9 @@ function res = testMinimalImpEquivalence()
 %
 % minimal_imp is the validated Andersen-Pesavento-Wang / Pomerenk-Ristroph plate
 % model that every sectional coefficient here comes from. This checks that the 3D
-% strip model, flown in the plane, IS that model -- not a re-derivation of it.
+% strip model, flown in the plane, IS that model -- not a re-derivation of it --
+% and that our default physics differs from it by exactly the one term we add on
+% purpose.
 %
 % THE REFERENCE IS CALLED, NOT COPIED. Its Model function is extracted VERBATIM
 % from minimal_imp.m at run time into a temporary folder and called there. Olivia's
@@ -22,8 +24,11 @@ function res = testMinimalImpEquivalence()
 %   buoyancy     ours has none, so mp = 0 in her call (her Tb and (m-mp) terms).
 %   added mass   ours matches her m1 = 0, m2 = pi rho (c/2)^2, Ia = pi rho c^4/128 +
 %                m2 lcm^2 by construction (getAddedMass). Her omega*v cross terms
-%                are our added-mass RATE term (ON; testNewPhysicsTerms A5). She has
-%                NO Munk moment (m11-m22)vx'vy', so enableAddedMassMoment = false.
+%                are our added-mass RATE term (testNewPhysicsTerms A5). Her
+%                -m2 omega^2 lcm and +m2 lcm omegadot are our off-centre COUPLING
+%                (getAddedMass A_coup), in its 'oneSided' form for E1-E4: she has
+%                no torque-side partner +m2 lcm vdot. She has NO Munk moment (her
+%                measured l_cp contains it), so E1-E4 switch ours off.
 %   other        LEV off. Edge drag at its default: the spanwise velocity is zero
 %                in the plane, so it is inert.
 %   state        her [x y theta vx' vy' omega] <-> our r, q = rotation theta about
@@ -31,23 +36,19 @@ function res = testMinimalImpEquivalence()
 %                are the CoM velocity (her alpha and v_cg are formed at the
 %                geometric centre, vy' - omega*lcm), exactly as our strips are.
 %
-% CASES
+% CASES  (E1-E5: ours in minimal_imp's form -- oneSided coupling, no Munk)
 %   E1  lcm = 0, 500 random states: (d vx'/dt, d vy'/dt, d omega/dt) agree.
-%       Every CoM-offset term (Tb, Tcr, -m2 omega^2 lcm, the explicit d omega/dt
-%       in her F_yp) vanishes, so the two must be the same equations.
 %   E2  lcm ~= 0: the aerodynamic force and torque agree exactly. Her aero force is
 %       recovered from her own outputs by removing her (known) inertial terms; her
-%       torque from d omega/dt (her rotation equation is torque/(I+Ia), as ours is
-%       for planar motion).
-%   E3  lcm ~= 0: the full translational equations. Here the two models are
-%       STRUCTURALLY different -- she adds -m2 omega^2 lcm and m2 lcm d omega/dt
-%       (the added mass of an off-centre plate seen from its CoM), ours has no
-%       translation-rotation added-mass coupling. Reported as WARN, never failed.
+%       torque from d omega/dt (her rotation equation is torque/(I+Ia)).
+%   E3  lcm ~= 0: the full translational equations, coupling included.
 %   E4  Trajectories from her own initial condition (theta = -30 deg, 5 cm/s,
-%       5 s): at lcm = 0 they must coincide until chaos separates them (the
-%       agreement horizon is reported); at lcm = 0.1 cm the descent rate and the
-%       rotation are compared, and differences reported (they include E3's).
+%       5 s), at lcm = 0 and 0.1 cm: they coincide until chaos separates them
+%       (the agreement horizon is reported, and must reach 1 s).
 %   E5  Planarity: a 2D release stays in the plane (z, v_z, omega_x, omega_y = 0).
+%   E6  OUR DEFAULT PHYSICS (symmetric coupling, Munk in 'residual' mode), lcm =
+%       0.1 cm: equals minimal_imp plus exactly the torque-side term +m2 lcm vdot,
+%       solved simultaneously -- and, in 2D, the residual Munk moment is zero.
 %
 % OUTPUT
 %   res : struct array (.name, .pass, .detail).
@@ -70,14 +71,15 @@ function res = testMinimalImpEquivalence()
     m2 = pi*p*l^2/4;
     % --- our seed: a uniform rectangle in SI -------------------------------------
     S = 0.10;  c = l/100;
+    herForm = struct('enableAddedMassMoment', false, 'addedMassCouplingForm', 'oneSided');
     res = struct('name', {}, 'pass', {}, 'detail', {});
 
     % ============================== E1 =========================================
-    sp0 = herSeed(0);
+    sp0 = herSeed(0, herForm);
     rng(11);  N = 500;  err = zeros(N, 3);
     for j = 1:N
         st = [0; 0; 2*pi*rand - pi; 40*randn; 40*randn; 15*randn];
-        [a_ours, ~] = ours(sp0, st, 0);
+        [a_ours, ~] = ours(sp0, st);
         a_hers = Model(st, 0, I, l, m, 0, p, g);
         err(j,:) = abs(a_ours - a_hers(4:6)).' ./ [g g max(abs(a_hers(6)), 1)];
     end
@@ -85,11 +87,11 @@ function res = testMinimalImpEquivalence()
         sprintf('max rel err  dvx %.1e  dvy %.1e  domega %.1e  (500 states)', max(err)));
 
     % ============================== E2 / E3 ====================================
-    lcm = 0.1;   spL = herSeed(lcm);   Ia = pi*p*l^4*(1 + 32*lcm^2/l^2)/128;
+    lcm = 0.1;   spL = herSeed(lcm, herForm);   Ia = pi*p*l^4*(1 + 32*lcm^2/l^2)/128;
     rng(12);  eF = zeros(N,2);  eT = zeros(N,1);  eA = zeros(N,2);
     for j = 1:N
         st = [0; 0; 2*pi*rand - pi; 40*randn; 40*randn; 15*randn];
-        [a_ours, F_ours] = ours(spL, st, lcm);
+        [a_ours, F_ours] = ours(spL, st);
         y  = Model(st, lcm, I, l, m, 0, p, g);
         th = st(3);  vx = st(4);  vy = st(5);  w = st(6);  T = (I + Ia)*y(6);
         % her aero force: her EOM with her inertial and gravity terms removed
@@ -101,17 +103,16 @@ function res = testMinimalImpEquivalence()
     end
     res(end+1) = item('E2 lcm = 0.1 cm: aero force and torque', max([eF(:); eT]) < 1e-10, ...
         sprintf('max rel err  F %.1e  torque (via domega) %.1e', max(eF(:)), max(eT)));
-    res(end+1) = item('E3 lcm = 0.1 cm: full translational EOM', true, sprintf( ...
-        ['%sdvx max %.2e g, median %.2e g;  dvy max %.2e g, median %.2e g  ' ...
-         '(her -m2 w^2 lcm and m2 lcm dw/dt terms; ours has no such coupling)'], ...
-        warnIf(max(eA(:)) > 1e-10), max(eA(:,1)), median(eA(:,1)), max(eA(:,2)), median(eA(:,2))));
+    res(end+1) = item('E3 lcm = 0.1 cm: full translational EOM', max(eA(:)) < 1e-10, sprintf( ...
+        'dvx max %.1e g;  dvy max %.1e g  (her -m2 w^2 lcm and m2 lcm dw/dt = our oneSided coupling)', ...
+        max(eA(:,1)), max(eA(:,2))));
 
     % ============================== E4 / E5 ====================================
     x0h = [0; 0; -pi/6; 5; 0; 0];   tq = linspace(0, 5, 2001).';
     tight = odeset('RelTol', 1e-10, 'AbsTol', 1e-10);
     for lc = [0 0.1]
         [~, Xh] = ode45(@(t, x) Model(x, lc, I, l, m, 0, p, g), tq, x0h, tight);
-        sp = herSeed(lc);
+        sp = herSeed(lc, herForm);
         R0 = rotz2(x0h(3));
         x0 = [zeros(3,1); axisAngleToQuat([0;0;1], x0h(3)); R0*[x0h(4); x0h(5); 0]/100; 0; 0; x0h(6)];
         [~, Xo] = ode45(@(t, x) seed6DOFODE3D(t, x, sp), tq, x0, tight);
@@ -124,16 +125,33 @@ function res = testMinimalImpEquivalence()
         turns_h = (Xh(end,3) - Xh(1,3)) / (2*pi);   turns_o = (th_o(end) - th_o(1)) / (2*pi);
         det = sprintf(['agree to 1%% chord for %.2f of 5 s;  descent %.2f vs her %.2f cm/s;  ' ...
                        'rotation %+.2f vs her %+.2f turns'], horizon, vd_o, vd_h, turns_o, turns_h);
-        if lc == 0
-            res(end+1) = item('E4 lcm = 0: trajectory', horizon >= 1.0, det); %#ok<AGROW>
-        else
-            res(end+1) = item('E4 lcm = 0.1 cm: trajectory', true, ...
-                              [warnIf(abs(vd_o - vd_h) > 0.05*abs(vd_h)) det]); %#ok<AGROW>
-        end
+        res(end+1) = item(sprintf('E4 lcm = %.1f cm: trajectory', lc), horizon >= 1.0, det); %#ok<AGROW>
         plan = max([abs(Xo(:,3)); abs(Xo(:,10)); abs(Xo(:,11)); abs(Xo(:,12))]);
         res(end+1) = item(sprintf('E5 lcm = %.1f cm: stays planar', lc), plan < 1e-9, ...
                           sprintf('max |z|, |v_z|, |w_x|, |w_y| = %.1e', plan)); %#ok<AGROW>
     end
+
+    % ============================== E6 =========================================
+    % Default physics: symmetric coupling, Munk moment ON in 'residual' mode.
+    spD = herSeed(lcm, struct());
+    spDoff = spD;  spDoff.enableAddedMassMoment = false;
+    rng(13);  e6 = zeros(N,3);  eM = zeros(N,1);
+    for j = 1:N
+        st = [0; 0; 2*pi*rand - pi; 40*randn; 40*randn; 15*randn];
+        a_def = ours(spD, st);
+        y = Model(st, lcm, I, l, m, 0, p, g);
+        % her equations with the reciprocal term added, solved together:
+        %   (m+m2) vdot - m2 lcm wdot = Fy0,   -m2 lcm vdot + (I+Ia) wdot = T
+        T   = (I + Ia)*y(6);
+        Fy0 = (m + m2)*y(5) - m2*lcm*y(6);
+        vw  = [m + m2, -m2*lcm; -m2*lcm, I + Ia] \ [Fy0; T];
+        ref = [y(4); vw];
+        e6(j,:) = abs(a_def - ref).' ./ [g g max(abs(ref(3)), 1)];
+        eM(j)   = max(abs(a_def - ours(spDoff, st)) ./ [g; g; max(abs(ref(3)), 1)]);
+    end
+    res(end+1) = item('E6 default physics = hers + m2 lcm vdot', max([e6(:); eM]) < 1e-10, sprintf( ...
+        'max rel err %.1e vs minimal_imp + reciprocal term;  residual Munk in 2D: %.1e (must be 0)', ...
+        max(e6(:)), max(eM)));
 
     % --- report ------------------------------------------------------------------
     for k = 1:numel(res)
@@ -141,20 +159,24 @@ function res = testMinimalImpEquivalence()
         fprintf('  %-40s %s  %s\n', res(k).name, tag, res(k).detail);
     end
     if all([res.pass])
-        fprintf('PASS: the 3D model flown in the plane reproduces minimal_imp (E3 and E4b report known differences).\n');
+        fprintf(['PASS: in the plane the 3D model is minimal_imp (oneSided form), and our ' ...
+                 'default physics is minimal_imp plus the torque-side coupling term.\n']);
     else
         fprintf(2, 'FAIL: the 3D model in 2D departs from minimal_imp (see above).\n');
     end
 
     % =========================================================================
-    function sp = herSeed(lcmCm)
+    function sp = herSeed(lcmCm, addedMassCfg)
     % Her plate as our seed: uniform rectangle, her mass, inertia and CoM offset.
+    % addedMassCfg: added-mass switch overrides on top of the builder defaults.
         b.seedShape     = polyshape([-S/2, S/2, S/2, -S/2], [-c/2, -c/2, c/2, c/2]);
         b.seedDensity   = 1;   b.seedThickness = 1e-4;   b.numStrips = 10;
         b.tSamples = 0;   b.nutPos_t = [0;0;0];   b.nutMass_t = 0;
         cfg = struct('rhoFluid', 1000, 'g', 9.80, 'shapeModel', 'shape3d', ...
-                     'enableAddedMassRate', true, 'enableAddedMassMoment', false, ...
-                     'enableLEV', false);
+                     'enableAddedMassRate', true, 'enableLEV', false);
+        for f = fieldnames(addedMassCfg).'
+            cfg.(f{1}) = addedMassCfg.(f{1});
+        end
         sp = buildSeedParams(b, cfg);
         mp = sp.massParams;
         mp.M_total      = (m/1e3*100) * S;                  % g/cm -> kg/m, times span
@@ -166,7 +188,7 @@ function res = testMinimalImpEquivalence()
         mp.I_G_dot_t    = zeros(size(mp.I_G_dot_t));
         sp.massParams   = mp;
     end
-    function [aCgs, Fcgs] = ours(sp, st, ~)
+    function [aCgs, Fcgs] = ours(sp, st)
     % Our model at her state: body-frame accelerations (CGS) and aero force per span.
         R  = rotz2(st(3));
         u  = [st(4); st(5); 0] / 100;                       % body velocity, m/s
@@ -181,9 +203,6 @@ end
 
 function R = rotz2(th)
     R = [cos(th) -sin(th) 0; sin(th) cos(th) 0; 0 0 1];
-end
-function s = warnIf(tf)
-    if tf; s = 'WARN '; else; s = ''; end
 end
 function r = item(name, pass, detail)
     r = struct('name', name, 'pass', logical(pass), 'detail', detail);

@@ -16,7 +16,8 @@ function sp = buildSeedParams(bsp, cfg)
 %         'planar' is an error.
 %
 % The switches the model honours:
-%   enableEdgeDrag, enableAddedMassRate, enableAddedMassMoment, enableAddedMass3D,
+%   enableEdgeDrag, enableAddedMassRate, enableAddedMassMoment, addedMassMomentMode,
+%   enableAddedMassCoupling, addedMassCouplingForm, enableAddedMass3D,
 %   enableLEV, levApplicationPoint
 % An override of one of the archived planar model's switches is WARNED and
 % skipped, never silently applied -- an inert knob that looks live is worse than
@@ -50,10 +51,23 @@ function sp = buildSeedParams(bsp, cfg)
     % Physics switches: the BUILDER (setupSeedShape3D) owns the defaults. Only
     % apply EXPLICIT cfg overrides here; never silently clobber a builder default.
     switches = {'enableAddedMass3D', 'enableAddedMassRate', 'enableAddedMassMoment', ...
+                'addedMassMomentMode', 'enableAddedMassCoupling', 'addedMassCouplingForm', ...
                 'enableEdgeDrag', 'enableLEV', 'levApplicationPoint'};
     for k = 1:numel(switches)
         if isfield(cfg, switches{k})
             sp.(switches{k}) = cfg.(switches{k});
+        end
+    end
+    % String switches: reject a typo at build time, not inside ode45.
+    strSw = {'addedMassMomentMode', {'residual', 'full'}; ...
+             'addedMassCouplingForm', {'symmetric', 'oneSided'}};
+    for k = 1:size(strSw, 1)
+        if isfield(sp, strSw{k,1})
+            sp.(strSw{k,1}) = char(sp.(strSw{k,1}));
+            if ~any(strcmp(sp.(strSw{k,1}), strSw{k,2}))
+                error('buildSeedParams:badSwitchValue', '%s must be %s (got ''%s'').', ...
+                      strSw{k,1}, strjoin(strcat('''', strSw{k,2}, ''''), ' or '), sp.(strSw{k,1}));
+            end
         end
     end
 

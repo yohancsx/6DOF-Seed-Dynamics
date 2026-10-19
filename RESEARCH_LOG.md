@@ -36,6 +36,7 @@ time. Where the reasoning was not written down, the entry says so rather than gu
 | 2026-09-27 → 10-03 | `e3b6694` | 7 | By-eye review set; paper-metric sign error fixed; six-part classifier |
 | 2026-10-05 | `c6d348c`, `ca9e83e` | 8 | Re-baseline with the fixed classifier; tracked numbers per grid run; flip boundary 36° |
 | 2026-10-15 | `529bdf2`, `c2d1116`, … | 9 | Cleanup: planar model archived (tag `planar-final`), old classifier retired, one-click suite with regression stage 0; `minimal_imp` equivalence test finds the missing off-centre added-mass coupling |
+| 2026-10-16 | (uncommitted) | 10 | Audit vs `minimal_imp`: Munk pitch double count removed (`'residual'`), off-centre coupling added in Kirchhoff's symmetric form (adds `+m₂l_cm v̇`, which `minimal_imp` lacks); `minimal_imp` cases all pass in its one-sided form |
 
 ---
 
@@ -712,6 +713,139 @@ including identical `seedParams` structs and identical final states.
 
 ---
 
+## Phase 10 — Audit against `minimal_imp`; Kirchhoff's added mass, complete (2026-10-16)
+
+**Why.** The off-centre coupling was next on the roadmap (phase 9). Before building on it,
+every term of Olivia Pomerenk's 2D model was put beside our model flown in the plane. Each
+was checked by algebra and by running both codes at the same states.
+
+**Method.**
+- A re-typed copy of her `Model`, with one switch per term. It matches her code to 3e-13 and
+  ours to 1.2e-13.
+- Random-state comparisons.
+- Trajectory sweeps: 21 CoM offsets, 2 releases, 40 s.
+- A 6×6 prototype RHS.
+
+The term-by-term table, with equations, is the published audit page; its findings are below.
+
+**What matched exactly.**
+- Kinematics: plate-centre velocity, α, speed.
+- The `computeAeroCoeffs` port, including her `(π−|α|)` shortcuts, and all nine constants.
+- Translational and rotational lift, drag.
+- The CoP torque `T_t`, rotational-lift torque `T_cr` and spin damping `T_r`.
+- `m₁ = 0`, `m₂ = πρ(l/2)²`, and `I_a` with its parallel-axis term.
+- The rotating-frame and added-mass-rate terms.
+
+Over 500 random states at any offset they agree to 1e-13.
+
+**Finding 1: the phase-5 Munk moment counted the pitching moment twice.**
+- In steady potential flow, the whole force on a flat plate acts at the quarter chord. Seen
+  from the centre, that one moment can be booked either as lift at the quarter chord, or as
+  lift at the centre plus the Munk moment `(m₂−m₁)uv`.
+- APW-style models use the second form. `minimal_imp` uses the first, with a **measured**
+  centre of pressure. Her `l_cp` at α→0 is 0.298 chord (potential flow: 0.25), and her
+  small-angle moment slope is −1.564 /rad (potential flow: −π/2 = −1.571).
+- Our phase-5 default took her `l_cp` **and** added `−v×(A·v)`. The pitching moment came out
+  2.0× hers at 1°, 4.2× at stall, and 6.2–7.4× from 20° to 75°.
+- In 2D that cut her plate's descent from 15.4 to 10.3 cm/s.
+- In 3D, on the Hou plate along current-default trajectories, the Munk pitch moment was
+  1.7–5.7× the strips' own CoP pitch torque.
+- The phase-5 provenance note quoted APW (6.3) with both a Munk term and a CoP torque. That
+  pairing is not compatible with a total-CoP law like hers.
+- **Not all of it was double.** For a flat plate, `−v×(A·v) = (m₂vw, 0, −m₂uv)`. Only the
+  pitch (z) part repeats the CoP law. The roll (x) part comes from normal velocity together
+  with spanwise sliding. Strips cannot see it, and it stops a span-first fall: with no Munk
+  moment at all, 2 of the 5 paper anchors fell edge-on at 10–12 m/s.
+
+**Finding 2: the off-centre coupling, and a term both models miss.**
+- The fluid's added mass sits at the strip centres, not the CoM:
+  `T_A = ½m₁u² + ½m₂(v − ωl_cm)² + ½I_a0ω²`.
+- Kirchhoff's equations of `T = T_body + T_A` give exactly her two force-side terms
+  (`−m₂ω²l_cm`, `+m₂l_cm ω̇`) plus a torque-side term `+m₂l_cm v̇` that **her model lacks**.
+  Physically it is the moment about the CoM of the fluid's reaction `−m₂v̇_G` at the plate
+  centre. Her `I_a` keeps the other half of that same moment, `m₂l_cm²` (its `ω̇` part).
+- Without it her mass matrix is one-sided. In ideal flow her form drifts 9% in kinetic energy
+  over 5 s in 2D, and 12% over 2 s in 3D. The symmetric form conserves it to 1e-10 and 5e-12.
+- Adding her two force-side terms to ours reproduced her accelerations to 1.2e-14 g, so they
+  were the whole of the phase-9 E3 gap.
+- In 2D the reciprocal term matters past a CoM offset of about 6% of chord. Beyond 9% it cuts
+  her model's descent by 40–75%; in the symmetric form the plate settles near 10 cm/s with a
+  small rocking.
+
+**Implemented (decided with the user: symmetric form, residual Munk, reciprocal ON except
+when comparing to `minimal_imp`).**
+- `getAddedMass` returns the coupling block `A_coup = Σ m₂ᵢ n̂ᵢ(dᵢ × n̂ᵢ)ᵀ` (third output).
+  Together with the existing blocks this is the strip operator
+  `T_A = Σ ½m₂ᵢ[n̂ᵢ·(V + Ω×dᵢ)]² + ½i_aᵢ(ŝᵢ·Ω)²`. For a flat plate its normal row is
+  `(−Σm₂z, 0, Σm₂x)`. A chordwise offset couples normal motion with pitch; a spanwise offset
+  (a nut toward one end) couples it with roll.
+- `rigidBody6DOF`: with `enableAddedMassCoupling` (default ON) it solves Kirchhoff's 6×6
+  body-frame system `M₆[V̇; Ω̇] = [F − Ω×P; τ − Ω×L − V×P − τ_IS − İ_GΩ]`.
+  `addedMassCouplingForm = 'oneSided'` drops the torque-side block and reproduces
+  `minimal_imp` exactly; it is for tests only. OFF keeps the old inertial-frame solve,
+  byte-identical.
+- `addedMassMomentMode = 'residual'` (default) subtracts `τ_IS = −Σ m₂ᵢ v_c,i v_n,i ŝᵢ`. These
+  are the strips' own 2D Munk moments, formed in the `seed6DOFODE3D` strip loop. `'full'` is
+  the phase-5 behaviour. In 2D, residual removes the Munk term entirely, as `minimal_imp`
+  does.
+- **Tests.**
+  - `testMinimalImpEquivalence`: E1–E5 run in the one-sided form and all **pass** at any
+    offset (E3, E4 at `l_cm = 0.1 cm` were WARN). The new E6 pins our **default** to her model
+    plus the reciprocal term, solved simultaneously, to 1e-10, and the 2D residual Munk to 0.
+  - New `testAddedMassCoupling`: K1 the coupling block's two branches and its 2D limit; K2
+    `A_coup = 0` gives the old path; K3 ideal-fluid energy; K4 residual keeps only the roll
+    part.
+  - `testNewPhysicsTerms` A/M pin the uncoupled formulas they test.
+  - Regressions: **68/68**, no warnings.
+  - `testRefactorInvariance('compare')` with the three new switches set to the old behaviour:
+    **44/44 bit-identical**, so the change is purely additive.
+
+**Suite at the new defaults.** Run `2026-10-16_143752_f6bbae6-dirty_3D_kirchhoff_residual_full`
+(full profile, LEV off). It is compared with the phase-8 baseline `2026-10-05_120022`. Stages
+A–D were rerun with the old added-mass physics (`…_legacy_addedMass_full`). Two
+attribution grids each switch on one change alone; they are in the session scratchpad, not
+`model_test_results`.
+
+| grid metric | phase-8 (no coupling, full Munk) | coupling only (full Munk) | residual Munk only (no coupling) | **both (new default)** |
+|---|---|---|---|---|
+| paper agreement, six-part | 14.4% | 0.0% | 6.7% | **1.9%** |
+| paper agreement, paper-vocab | 30.8% | 0.0% | **46.2%** | 19.2% |
+| paper grid non-physical | 0% | 0% | 31.7% | **64.4%** |
+| our-seed grid non-physical | 21.0% | 4.2% | 26.5% | **52.2%** |
+| our-seed revolver tilt median | 54.3° | 46.0° | 5.9° | 29.7° |
+| paper anchors | AR, 3×FL, AR | 5× flutter | AR/FL/CH/SST/AR (paper vocab) | FA, 4× SST (paper vocab) |
+
+**Reading.**
+
+- **The two changes interact.** Neither alone produces what both do together.
+  - **Coupling alone** (full Munk kept) makes every paper-grid cell flutter. Its revolution
+    is gone.
+  - **The residual Munk alone** gives the best paper-vocabulary agreement yet, 46%: the
+    revolvers go flat (tilt 6°) and AR appears widely. But a third of the cells never
+    settle.
+  - **Together**, most cells fall into `chaotic` or `wobblingSpin` (span-tilt spread above
+    25°). These the classifier counts as non-physical; on the paper grid they make up the
+    whole 64%. On our seed, 53 of the 209 non-physical cells are span-first or edge-on falls
+    (`endOnFall` 34, `edgeSlide` 19).
+- **Stages A–D, old vs new physics.**
+  - Twist 5–35°: was steady `spiralTumble`, `tightSpiralTumble` and `flutterSpiral`; now
+    `tumble`, then `wobblingSpin` at 10°, 20°, 25° and 30°.
+  - Curvature 5–35°: was steady `flutter`; now `tumble`, turning `chaotic` or `wobblingSpin`
+    from 20°.
+  - Descent speeds are similar (1.6–2.2 m/s).
+- **Interpretation.** Free flight is validation, not a reason to change the physics. The
+  defaults stay as decided, and the agreement numbers are reported as they are. The phase-5
+  attitude regularity rested partly on a pitching moment counted twice. With it removed and
+  the coupling added, the model has no settled attitude for most Hou-plate configurations.
+  The strips' static, quasi-steady pitch law then carries all the pitch physics. Candidate
+  missing pieces, each needing form from theory and magnitude from static data:
+  - finite-aspect-ratio corrections to the CoP and lift slope, at AR ≈ 3 (the virtual wind
+    tunnel and the Ortiz trends);
+  - rotational damping beyond `T_r`;
+  - the 12 s window: `chaotic` cells may be slow transients. To check.
+
+---
+
 ## Decided against or superseded
 
 | item | status | why | where |
@@ -724,6 +858,9 @@ including identical `seedParams` structs and identical final states.
 | Induced inflow + Prandtl rotor tip loss | dropped | `v_i` ≈ 0.19% of descent; symmetric tip loss adds no roll moment | phase 4 |
 | LEV as the collapse fix | demoted | CoP effect ~7× too small; cannot act span-first; kept as a switch for lift magnitude | phase 4 |
 | Edge drag relocated to the windward tip | wrong | Force parallel to its arm; `r × F` unchanged. Led to the Munk moment | phase 5 |
+| Full Munk moment on top of the measured CoP (`addedMassMomentMode = 'full'`) | superseded | Its pitch part repeats the total-CoP law: 2× the pitching moment at small α, 6–7× past stall. Kept as a switch | phases 5, 10 |
+| Added-mass coupling dropped as "∝ ρ_air" (`.tex` derivations) | wrong | All added mass is ∝ ρ; the coupling is 3–6% of the weight on the Hou plate and part of Kirchhoff's equations | phases 0, 10 |
+| `minimal_imp`'s one-sided coupling as our default | decided against | Not symmetric, so not energy-conserving in ideal flow; kept as `'oneSided'` for the equivalence test | phase 10 |
 | Prune dead aero constants when planar retires | done differently (phase 9) | Planar was archived; its five constants moved with it to `archive/planar/aero/planarAeroConstants.m` | phases 2, 9 |
 | Fix the `(π−|α|)` branch quirks | not worth it | Cost ≤ 0.7% of peak CT, 0.2% of peak CD, measured | phase 0 port |
 | Full "combined" two-plane spanwise re-discretization | set aside (reason unrecorded) | The phase-6 low-AR plan revisits the same spanwise-flow problem | phases 0, 6 |
