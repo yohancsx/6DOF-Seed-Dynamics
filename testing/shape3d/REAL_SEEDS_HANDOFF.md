@@ -7,6 +7,54 @@ given in §6.
 **Nothing here is decided until the user says so.** §5 lists the open decisions, each
 with a recommended default. Confirm them with the user before writing code.
 
+> **UPDATE 2026-11-11: the runner and the suite stage are DONE (§6 steps 3–4).**
+> - **Tracked drops:** `seedTrackedDataStruct.mat` (`P.seedTracks`): one tracked point per
+>   frame, 60 fps, lab frame z up in metres, released from 10 m. There is no attitude. The
+>   tracking noise is ~4.5 cm. Seeds 5, 15, 21, 24 and 27 glided out of view, so their
+>   tracks are partial. Seed 2 is tracked but has no mass model.
+> - **`helpers/loadTrackedSeeds.m`:** sets the time base, trims to the release (t = 0 at
+>   the last frame at rest), and gives `zDrop` (height fallen).
+> - **`helpers/computePathMetrics.m`:** ONE position-only metric set, applied to simulated
+>   and tracked paths over the same band of height fallen. Metrics: descent speed, horizontal
+>   and drift speed, glide angle, helix, tortuosity, transient, and path class. The helix is
+>   a rotating-vector fit of the raw drift-free path, so noise cannot pass.
+> - **`shape3d/runRealSeedSet3D.m`:** flies each seed from 10 m at 0° and 135° about the
+>   span, with no spin, to the ground. It gives the six-part label, plus the path metrics on
+>   the CoM path resampled at 60 fps in the lab frame (`[X, −Z, Y]`). Outputs are a CSV,
+>   summary, `.mat` and figures. Headline numbers go in `.tracked`.
+> - **Suite stage G** (`cfg.runRealSeeds`): the quick profile uses seeds
+>   `[10 18 9 20 5 24]`. The `real_*` columns go into the tracking history.
+> - **`shape3d/testTrackedSeedLoader.m`** (T1–T5) is in `runRegressionTests`.
+> - **Not done:** the mirror test (§3.5 item 6) and per-seed videos by default (they are
+>   off; set `cfg.realSeedVideos`).
+
+> **UPDATE 2026-11-10: NEW DATA, and steps 1 (loader, builder input, test) are DONE.**
+> - **Data:** `Real Seed Validation Data/seedMassModel.mat` (`P.seedMassModel`). This replaces
+>   `seedResults.mat` for this work. Per seed, `out(k)`:
+>   - the 12 CT-fitted plates;
+>   - `calibrated`: mass, CoM and full inertia about the CoM, in mesh axes, mm / g / g mm²,
+>     scaled to the measured mass;
+>   - `TP`: the parts table (12 plates + the nut, lumped). Summed, the parts reproduce
+>     `calibrated` to 1e-15.
+>   **Our kernel model (§3.1 step 3, §5 decisions 1–2) is therefore moot.**
+> - **Built:**
+>   - `testing/helpers/loadRealSeeds.m` and `realSeedToBsp.m`. Strips come from the
+>     plates (`opts.subStrips` per plate). Mass comes from the parts, moved to body axes by
+>     `P`.
+>   - `setupSeedShape3D` takes `bsp.stripGeom` (`.strips`, `.massParams`) as given and
+>     runs section 4 unchanged.
+>   - `testing/shape3d/testRealSeedLoader.m` (R1–R6) is in `runRegressionTests` (74/74).
+>     `testRefactorInvariance('compare')` is still 44/44.
+> - **Decided with the user:**
+>   - all 29 seeds, regardless of `confidence`;
+>   - calibration is an option: `'both'` scales nut and wing densities together (the
+>     file's `calibrated`, the default), `'nutOnly'` keeps the wing at its predicted mass;
+>   - releases are flat, and **135° about the span**, both with no spin, **from 10 m**
+>     (so the run length follows from the drop height, not a fixed 12 s);
+>   - use `cfg.enableAddedMass3D = true` for real seeds, because their tip dihedral
+>     reaches ~26°.
+> - **Next:** §6 step 2 (geometry check sheet), then step 3 (the runner).
+
 > **UPDATE 2026-10-15: a cleanup landed after this brief was written. Read this first.**
 > The sections below have been updated to match, but in short:
 > - **One model.** The planar model is archived (`archive/planar/`, git tag

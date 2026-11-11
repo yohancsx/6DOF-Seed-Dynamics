@@ -22,7 +22,8 @@ function appendTrackingRow(file, row)
     io = delimitedTextImportOptions('NumVariables', numel(names), 'VariableNames', names, ...
                                     'Delimiter', ',', 'DataLines', [2 Inf]);
     textVars = intersect(io.VariableNames, {'timestamp', 'git', 'label', 'profile', ...
-                                            'levApplicationPoint', 'munkMode', 'couplingForm'});
+                                            'levApplicationPoint', 'munkMode', 'couplingForm', ...
+                                            'real_calibration'});
     io = setvartype(io, setdiff(io.VariableNames, textVars), 'double');
     if ~isempty(textVars); io = setvartype(io, textVars, 'string'); end
     old = readtable(file, io);

@@ -39,13 +39,24 @@
 %                          parameter window, their release, the five published
 %                          anchor cases and the phase map, scored against the
 %                          digitised Fig. 2a.
+%   G. REAL SEEDS       -- the 29 CT-fitted seeds (loadRealSeeds: fitted plates +
+%                          fitted mass, CoM and inertia), each released from 10 m,
+%                          flat and at 135 deg about the span, no spin, and compared
+%                          with its TRACKED drop (loadTrackedSeeds, 60 fps) through
+%                          one position-only metric function (computePathMetrics):
+%                          descent speed, glide angle, helix radius/period, path
+%                          class. runRealSeedSet3D does the work; outputs in
+%                          <run>/real_seeds/. Validation only -- nothing is fitted.
+%                          Skipped with a warning if either data file is absent.
 %
 % MODE LABELS: the six-part classifier (classifySeedMode; definitions in
 % testing/classifier/MODE_DEFINITIONS.md) is the label in every stage. Stage F
 % also scores the paper-vocabulary classifier (classifyPaperMode) as a cross-check.
 %
-% TRACKED NUMBERS (stages 0, E and F): regression pass count, paper agreement,
-% non-physical fraction, and the span-tilt distribution of revolvers. Written to
+% TRACKED NUMBERS (stages 0, E, F and G): regression pass count, paper agreement,
+% non-physical fraction, the span-tilt distribution of revolvers, and the real-seed
+% comparison (descent-speed error and rank correlation, glide error, path-class
+% agreement, release sensitivity). Written to
 % <run>/tracking_3D.txt, and one row per run is merged into
 % <outPath>/tracking_history_3D.csv (appendTrackingRow) so runs can be compared.
 % Run folders are named <timestamp>_<githash>_3D_<label>_<profile>, under model_test_results/
@@ -106,6 +117,7 @@ cfg.runSweeps     = true;      % the nine 2D-parity groups
 cfg.runComMove    = true;      % moving-nut scenarios
 cfg.runModeGrid   = true;
 cfg.runPaperGrid  = true;      % ON by default -- the comparison that matters
+cfg.runRealSeeds  = true;      % stage G: the measured seeds vs their tracked drops
 
 % --- Animations (stages A, B, D) ------------------------------------------
 cfg.animate           = true;
@@ -167,6 +179,20 @@ cfg.gridN     = 20;                            % mode grid is gridN x gridN
 cfg.gridMax   = 1.5;                           % nut offset range, in chord/span units
 cfg.paperNX   = 13;   cfg.paperNY = 8;         % paper-window grid resolution
 
+% --- Real seeds (stage G) ---------------------------------------------------
+cfg.realSeedFile    = P.seedMassModel;   % CT-fitted plates + mass model per seed
+cfg.trackFile       = P.seedTracks;      % tracked drops (lab frame, z up, metres)
+cfg.trackFps        = 60;                % camera frame rate
+cfg.realSeeds       = [];                % [] = all; the quick profile uses a subset
+cfg.realCalibration = 'both';            % 'both' (nut + wing scaled to measured mass);
+                                         % run 'nutOnly' as a SEPARATE labelled run
+cfg.realSubStrips   = 1;                 % strips per plate (1 is converged to 0.25%)
+cfg.realReleasesDeg = [0 135];           % release attitude about the span (deg)
+cfg.realDropHeight  = 10;                % release height (m)
+cfg.realTimeCap     = 60;                % s; a drop that has not landed by then stops
+cfg.realWindowStart = 1.5;               % m fallen before the comparison window
+cfg.realSeedVideos  = false;
+
 %% 2. Apply the switch overrides and the profile, build the run folder
 fn = fieldnames(sw);
 for k = 1:numel(fn);  cfg.(fn{k}) = sw.(fn{k});  end
@@ -182,6 +208,7 @@ switch lower(cfg.profile)
         cfg.stripCounts = [5 10];
         cfg.gridN       = 8;
         cfg.paperNX     = 7;    cfg.paperNY = 4;
+        cfg.realSeeds   = [10 18 9 20 5 24];   % 2 helix, 2 near-straight, 2 gliders
     otherwise
         error('runSeedTestSuite3D:profile', 'cfg.profile must be ''full'' or ''quick''.');
 end
@@ -676,10 +703,30 @@ if cfg.runPaperGrid
         min(pVd(:)), max(pVd(:)), min(pVd(:))/pinfo.Vscale, max(pVd(:))/pinfo.Vscale, pinfo.Vscale);
 end
 
+%% 8c. Stage G -- REAL SEEDS vs their tracked drops
+% The measured seeds, flown with the physics of this run (same switch overrides),
+% against their tracked drops. All the work is in runRealSeedSet3D.
+realTrack = [];
+if cfg.runRealSeeds
+    fprintf('\n--- G. real seeds ---\n');
+    if ~isfile(cfg.realSeedFile) || ~isfile(cfg.trackFile)
+        warning('runSeedTestSuite3D:noRealSeedData', ...
+                'Stage G skipped: real-seed data not found (%s, %s).', cfg.realSeedFile, cfg.trackFile);
+        summary(end+1) = "";
+        summary(end+1) = "REAL SEEDS: skipped (data files not found)";
+    else
+        addpath(fullfile(P.root, 'testing', 'shape3d'));   % runRealSeedSet3D lives there
+        realOut   = runRealSeedSet3D(cfg, fullfile(runDir, 'real_seeds'));
+        realTrack = realOut.tracked;
+        summary(end+1) = "";
+        summary = [summary(:); realOut.lines(:)];
+    end
+end
+
 %% 8b. Tracked numbers -- this run's file, plus one row in the running history
 % tracking_3D.txt holds this run's numbers; tracking_history_3D.csv (in outPath)
 % gets one row per run, so physics changes can be compared over time.
-if ~isempty(gridTrack) || ~isempty(paperTrack) || cfg.runRegression
+if ~isempty(gridTrack) || ~isempty(paperTrack) || ~isempty(realTrack) || cfg.runRegression
     tr = strings(0,1);
     tr(end+1) = sprintf('3D test suite tracking  %s  git %s  label=%s  profile=%s', ...
                         timestamp, gh, cfg.label, lower(cfg.profile));
@@ -693,6 +740,10 @@ if ~isempty(gridTrack) || ~isempty(paperTrack) || cfg.runRegression
         effSwitches.enableAddedMassCoupling, effSwitches.addedMassCouplingForm, effSwitches.enableLEV);
     if ~isempty(gridTrack); tr = [tr(:); ""; "MODE GRID (our seed)"; gridTrack.lines]; end
     if ~isempty(paperTrack); tr = [tr(:); ""; "PAPER GRID (Hou et al. window)"; paperTrack.lines]; end
+    if ~isempty(realTrack)
+        tr = [tr(:); ""; "REAL SEEDS vs TRACKED DROPS (calibration " + string(cfg.realCalibration) + ")"; ...
+              compose('  %s = %.4g', string(fieldnames(realTrack)), cellfun(@(f) realTrack.(f), fieldnames(realTrack)))];
+    end
     fid = fopen(fullfile(runDir,'tracking_3D.txt'), 'w');
     fprintf(fid, '%s\n', tr);   fclose(fid);
 
@@ -721,6 +772,13 @@ if ~isempty(gridTrack) || ~isempty(paperTrack) || cfg.runRegression
         row.paper_agreement = NaN;  row.paper_agreementPaperVocab = NaN;
         row.paper_nonPhysical = NaN;  row.paper_tiltMedian = NaN;  row.paper_flatRevolverFrac = NaN;
     end
+    realFields = {'real_VdLogErr', 'real_VdBias', 'real_VdRank', 'real_glideErr', ...
+                  'real_classAgree', 'real_nonPhysical', 'real_releaseLabelChange', 'real_nCompared'};
+    for k = 1:numel(realFields)
+        if isempty(realTrack); row.(realFields{k}) = NaN; else; row.(realFields{k}) = realTrack.(realFields{k}); end
+    end
+    row.real_calibration = string(cfg.realCalibration);
+    if isempty(realTrack); row.real_calibration = ""; end
     appendTrackingRow(cfg.trackingFile, row);    % merges new columns into the history
     fprintf('tracked numbers -> %s (+1 row in %s)\n', fullfile(runDir,'tracking_3D.txt'), ...
             cfg.trackingFile);
@@ -728,7 +786,7 @@ end
 
 %% 9. Manifest + summary
 save(fullfile(runDir,'manifest_3D.mat'), 'cfg', 'sw', 'effSwitches', 'timestamp', 'gh', ...
-     'gridTrack', 'paperTrack', 'regress');
+     'gridTrack', 'paperTrack', 'realTrack', 'regress');
 fid = fopen(fullfile(runDir,'summary_3D.txt'), 'w');
 for k = 1:numel(summary);  fprintf(fid, '%s\n', summary(k));  end
 fclose(fid);

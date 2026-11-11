@@ -19,6 +19,12 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
 % With neither twist nor curvature the frames are identity and the seed reduces
 % exactly to a flat plate (the flat-equivalence regressions).
 %
+% EXPLICIT GEOMETRY (measured seeds): if baseSeedParams.stripGeom is present
+% (.strips and .massParams, as built by loadRealSeeds/realSeedToBsp from CT-fitted
+% plates and a fitted mass model), steps 1-3 are replaced by it, taken as given;
+% step 4 runs unchanged. baseSeedParams must still carry .seedThickness, and
+% .seedShape for the renderers.
+%
 % MASS / INERTIA: twist keeps every strip centre at y=0 and only re-orients a
 % thin plate about its own mid-chord, so the flat-plate mass properties stay
 % exact and are used unchanged. CURVATURE moves mass off the x-z plane, so the
@@ -49,11 +55,20 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
 %                  position on the curve when curvature is set.)
 
     bsp = seedParamsIn.baseSeedParams;
+    seedParamsFull = seedParamsIn;                 % carry all inputs through
 
+    if isfield(bsp, 'stripGeom') && ~isempty(bsp.stripGeom)
+    % =====================================================================
+    % 1-3. EXPLICIT GEOMETRY: strips and mass model given (measured seeds)
+    % =====================================================================
+    % loadRealSeeds / realSeedToBsp build these from CT-fitted plates and the
+    % fitted mass, CoM and inertia. They are taken AS GIVEN: no slicing, no
+    % twist/curvature frames, no mass model of our own. Section 4 still runs.
+    [seedParamsFull.strips, seedParamsFull.massParams] = checkStripGeom(bsp.stripGeom);
+    else
     % =====================================================================
     % 1. STRIPS: the flat planform, sliced, with its flat-plate mass
     % =====================================================================
-    seedParamsFull = seedParamsIn;                 % carry all inputs through
     [seedParamsFull.strips, seedParamsFull.massParams] = slicePlanform(bsp);
 
     % =====================================================================
@@ -112,6 +127,7 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     if hasCurvature
         seedParamsFull.massParams = curvedMassProperties(seedParamsFull, bsp);
     end
+    end   % explicit geometry vs polyshape planform
 
     % =====================================================================
     % 4. PHYSICS: switch defaults, LEV constants, model tag
@@ -221,6 +237,48 @@ function seedParamsFull = setupSeedShape3D(seedParamsIn)
     % --- Model tag, and the base params (renderers read the planform from it)
     seedParamsFull.model          = 'shape3d';
     seedParamsFull.baseSeedParams = bsp;
+end
+
+
+% =========================================================================
+% LOCAL: validate an explicit strip geometry + mass model (bsp.stripGeom)
+% =========================================================================
+function [strips, massParams] = checkStripGeom(sg)
+% Every field the RHS reads, with consistent sizes; frames orthonormal and
+% right-handed (chord x normal = span). Errors name the offending field.
+    req = {'chord','dz','area','xgc_body','ygc_body','zgc_body','z_body', ...
+           'liftMult','dragMult','chordDir','normalDir','spanDir'};
+    if ~isfield(sg, 'strips') || ~isfield(sg, 'massParams')
+        error('setupSeedShape3D:badStripGeom', 'bsp.stripGeom needs .strips and .massParams.');
+    end
+    strips = sg.strips;   massParams = sg.massParams;
+    for f = req
+        if ~isfield(strips, f{1})
+            error('setupSeedShape3D:badStripGeom', 'bsp.stripGeom.strips.%s is missing.', f{1});
+        end
+    end
+    M = numel(strips.chord);
+    for f = req(1:9)
+        if numel(strips.(f{1})) ~= M
+            error('setupSeedShape3D:badStripGeom', 'stripGeom.strips.%s has %d entries, expected %d.', ...
+                  f{1}, numel(strips.(f{1})), M);
+        end
+    end
+    c = strips.chordDir;  n = strips.normalDir;  sd = strips.spanDir;
+    if ~isequal(size(c), [3 M]) || ~isequal(size(n), [3 M]) || ~isequal(size(sd), [3 M])
+        error('setupSeedShape3D:badStripGeom', 'stripGeom strip frames must each be 3x%d.', M);
+    end
+    if max(abs([vecnorm(c) vecnorm(n) vecnorm(sd)] - 1)) > 1e-9 || ...
+       max(abs([dot(c,n) dot(n,sd) dot(sd,c)])) > 1e-9 || ...
+       max(vecnorm(cross(c, n) - sd)) > 1e-9
+        error('setupSeedShape3D:badStripGeom', ...
+              'stripGeom strip frames must be orthonormal and right-handed (chord x normal = span).');
+    end
+    for f = {'tSamples','com_t','I_G_t','I_G_dot_t','M_total'}
+        if ~isfield(massParams, f{1})
+            error('setupSeedShape3D:badStripGeom', 'bsp.stripGeom.massParams.%s is missing.', f{1});
+        end
+    end
 end
 
 

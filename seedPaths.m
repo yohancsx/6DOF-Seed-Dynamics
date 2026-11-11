@@ -34,7 +34,10 @@ function P = seedPaths(root)
 %   root : (optional) the repo root. Default: the folder holding this file.
 % OUTPUT
 %   P    : struct with .root, .results, .misc, .seedData (the measured-seed shape
-%          file, outside the repo; may not exist on every machine).
+%          file, outside the repo; may not exist on every machine), and
+%          .seedMassModel (the CT-fitted plates + mass/inertia per seed, read by
+%          loadRealSeeds; also outside the repo), and .seedTracks (the measured
+%          drop trajectories, read by loadTrackedSeeds).
 
     if nargin < 1 || isempty(root)
         root = fileparts(mfilename('fullpath'));
@@ -55,4 +58,6 @@ function P = seedPaths(root)
     P.results  = fullfile(root, 'model_test_results');
     P.misc     = fullfile(parent, 'Misc Outputs');
     P.seedData = fullfile(parent, 'Real Seed Validation Data', 'seedResults.mat');
+    P.seedMassModel = fullfile(parent, 'Real Seed Validation Data', 'seedMassModel.mat');
+    P.seedTracks    = fullfile(parent, 'Real Seed Validation Data', 'seedTrackedDataStruct.mat');
 end

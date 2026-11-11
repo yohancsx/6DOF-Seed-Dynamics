@@ -19,6 +19,10 @@ model_test_results/
     mode_grid_3D.mat / .png     stage E, our seed's mode grid
     mode_grid_picks/            videos made from that grid with testing/tools/pickModeGridRuns.m
     paper_mode_grid_3D.mat      stage F, the Hou et al. comparison
+    real_seeds/                 stage G: real_seeds_comparison.csv (one row per seed x
+                                release, simulated and measured side by side),
+                                summary_real_seeds.txt, real_seeds_3D.mat, and the
+                                descent / side-view / top-view / label figures
     paper_comparison_3D.png     ours vs the digitised Fig. 2a, disagreements outlined
     manifest_3D.mat             cfg, switches in force, git, tracked structs
   tracking_history_3D.csv       one row per run (merged, so new columns are safe)

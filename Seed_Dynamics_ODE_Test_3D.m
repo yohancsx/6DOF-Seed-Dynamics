@@ -23,8 +23,9 @@
 %% 1. Setup seed shape, mass, environment and physics switches  -- EDIT HERE
 % Paths: find the repo root (the folder holding seedPaths.m) above this file;
 % seedPaths puts the model code on the path. See seedPaths.m.
-here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
-while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+%here = fileparts(mfilename('fullpath'));  if isempty(here); here = pwd; end
+%while ~isfile(fullfile(here,'seedPaths.m')) && ~strcmp(here,fileparts(here)); here = fileparts(here); end
+here = "C:\Users\yohan\OneDrive\Documents\Research Stuff\Seed Dynamics Code\6DOF Seed Dynamics";
 addpath(here);  P = seedPaths(here);
 root = P.root;
 
@@ -39,7 +40,7 @@ hs = spanLength / 2;    hc = chordLength / 2;   % half-span, half-chord
 
 % --- Nut (the lumped seed mass) -------------------------------------------
 nutMass = 75e-6;          % kg
-nutPos  = [0; 0; 0];      % body [x;y;z] (m). e.g. [0.5*hc; 0; 0.5*hs] to offset it
+nutPos  = [0; 0; 0.05*hs];      % body [x;y;z] (m). e.g. [0.5*hc; 0; 0.5*hs] to offset it
 tSamples = 0;             % single sample -> constant mass. A vector here (with a
                           % 3xN nutPos_t) drives the time-varying mass path.
 
@@ -50,8 +51,8 @@ tSamples = 0;             % single sample -> constant mass. A vector here (with 
 % curvature(s) : dihedral angle (rad) vs span arc length s (m). This one lifts
 %                the strips OUT of the plane, so it moves the CoM as well.
 % Both take and return vectors. Comment out for a flat seed.
-tipTwistDeg = 0;    % 0 -> no twist
-tipCurveDeg = 0;    % 0 -> no curvature
+tipTwistDeg = 5;    % 0 -> no twist
+tipCurveDeg = 15;    % 0 -> no curvature
 twistFn     = [];   curvatureFn = [];
 if tipTwistDeg ~= 0
     twistFn     = @(z) (deg2rad(tipTwistDeg)/hs) .* z;          % anti-symmetric
@@ -116,13 +117,14 @@ title(sprintf('Seed geometry, identity pose  (twist %g deg, curvature %g deg)', 
 view(35, 20);
 
 %% 3. Run the dynamics (ode45)
-r0     = [0; 0; 0];
+r0     = [0; 0; 10];
 q0     = [1; 0; 0; 0];              % level release. Tilted: axisAngleToQuat([0;0;1], pi/6)
+%q0 = axisAngleToQuat([0;0;1], pi/4);
 v0     = [0; 0; 0];
-omega0 = [0; 10; 0];                % initial spin about the plate normal (rad/s)
+omega0 = [0; 0; 0];                % initial spin about the plate normal (rad/s)
 
 x0    = [r0; q0; v0; omega0];
-tspan = 0:0.003:10;                 % integration horizon (s)
+tspan = 0:0.003:2;                 % integration horizon (s)
 
 odeOpts = odeset('RelTol', 1e-6, 'AbsTol', 1e-8);
 rhs     = seedRHS(seedParams);      % -> seed6DOFODE3D for a shape3d seed
@@ -156,7 +158,7 @@ fprintf(['\nmode = %s  [flip %s | revolution %s | attitude %s | path %s | %s]\n'
 % Set outFolder OUTSIDE the repo: generated videos stay out of git.
 outFolder = fullfile(P.misc, "Compiled_Outputs");
 if ~exist(outFolder, 'dir'); mkdir(outFolder); end
-runName = 'quick_Spin_3D';
+runName = 'flip';
 
 traj.t             = tOut;
 traj.quat          = xOut(:, 4:7).';
@@ -170,8 +172,8 @@ opts.outputFolder = char(outFolder);
 opts.videoFile    = char(fullfile(outFolder, [runName '.mp4']));
 opts.fps          = 10;
 opts.axisMode     = 'follow';
-opts.zoomFactor   = 3;
-opts.frameStep    = 5;
+opts.zoomFactor   = 1;
+opts.frameStep    = 3;
 opts.showVels     = false;
 opts.velOpts.showTotal     = false;
 opts.velOpts.showProjected = false;

@@ -11,6 +11,10 @@ function [T, summary] = runRegressionTests(opts)
 %   testNewPhysicsTerms         added-mass rate + Munk moment, edge drag, LEV
 %   testPaperMetrics            paper metrics and both classifiers on synthetic motion
 %   testActivePathClean         no active code calls archived code
+%   testRealSeedLoader          measured-seed import + the builder's stripGeom input
+%                               (skipped with a WARN if the data file is absent)
+%   testTrackedSeedLoader       tracked-drop import + the shared path metrics
+%                               (skipped with a WARN if the data file is absent)
 %
 % NOT included: testRefactorInvariance, which pins the model bit for bit against a
 % captured reference. It is for refactors only -- an intended physics change
@@ -31,7 +35,7 @@ function [T, summary] = runRegressionTests(opts)
 
     tests = {'testMinimalImpEquivalence', 'testAddedMassCoupling', 'testShape3DFlatEquivalence', ...
              'testCurvedMassProperties', 'testNewPhysicsTerms', 'testPaperMetrics', ...
-             'testActivePathClean'};
+             'testActivePathClean', 'testRealSeedLoader', 'testTrackedSeedLoader'};
     if nargin >= 1 && isfield(opts, 'tests'); tests = cellstr(opts.tests); end
 
     rows = cell(0, 5);
